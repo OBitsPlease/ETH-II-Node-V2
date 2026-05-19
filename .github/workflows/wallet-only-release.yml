@@ -1,0 +1,37 @@
+name: Wallet-Only Release
+
+on:
+  push:
+    tags:
+      - 'wallet-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-wallet-only:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build wallet-only installer
+        run: |
+          cd wallet
+          npm ci
+          npm run build:win:walletonly
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wallet/dist/*.exe
+            wallet/dist/latest.yml
+            wallet/dist/*.blockmap
+          generate_release_notes: true
