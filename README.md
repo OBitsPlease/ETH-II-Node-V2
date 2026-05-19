@@ -84,7 +84,7 @@ miner.exe --algo ethash --server 127.0.0.1 --port 3333 --user YOUR_ADDRESS
 
 ## Connecting from another PC on your network
 
-Replace `127.0.0.1` with your mining PC's local IP (e.g. `192.168.1.100`):
+Replace `127.0.0.1` with your mining PC's local IP (e.g. `192.168.20.10`):
 ```
 PhoenixMiner.exe -pool stratum+tcp://192.168.1.100:3333 -wal YOUR_ADDRESS -pass x
 ```
