@@ -1,0 +1,54 @@
+﻿name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build stratum.exe
+        run: |
+          cd stratum
+          go build -o ../stratum.exe .
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build wallet installer
+        run: |
+          cd wallet
+          npm ci
+          npx electron-builder --win
+
+      - name: Download ethii.exe from ethii-node releases
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod "https://api.github.com/repos/OBitsPlease/ethii-node/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -eq "geth.exe" }
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile ethii.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wallet/dist/*.exe
+            stratum.exe
+            ethii.exe
+            watchdog-autopilot.ps1
+            launch-stratum.ps1
+            README.md

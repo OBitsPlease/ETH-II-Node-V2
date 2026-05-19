@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.exe
+*.dmg
+*.AppImage
+.DS_Store
+
+# Sensitive / local-only
+etherbase.txt
+payout.json
+rpc-port.txt
+*.log
+dist/
+node_modules/

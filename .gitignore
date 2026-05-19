@@ -1,0 +1,25 @@
+﻿# Sensitive user data
+payout.json
+workers.json
+etherbase.txt
+stratum-port.txt
+ETHII-Mining-Info.txt
+*.log
+
+# Binaries
+*.exe
+ethii-linux
+stratum-linux
+
+# Excluded folders
+ethii/
+ethii-node-release/
+ethii.worktrees/
+website/
+data/
+data-test/
+.vscode/
+
+# Node
+node_modules/
+dist/
