@@ -24,6 +24,12 @@ jobs:
           cd stratum
           go build -o ../stratum.exe .
 
+      - name: Clone and build ethii node
+        run: |
+          git clone https://github.com/OBitsPlease/ethii-node.git ethii-src
+          cd ethii-src
+          go build -o ../ethii.exe ./cmd/geth
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -34,13 +40,6 @@ jobs:
           cd wallet
           npm ci
           npx electron-builder --win
-
-      - name: Download ethii.exe from ethii-node releases
-        shell: pwsh
-        run: |
-          $release = Invoke-RestMethod "https://api.github.com/repos/OBitsPlease/ethii-node/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -eq "geth.exe" }
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile ethii.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
