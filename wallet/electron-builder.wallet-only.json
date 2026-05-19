@@ -1,4 +1,40 @@
 {
-  "extends": "./package.json",
-  "extraResources": []
+  "appId": "com.ethii.wallet",
+  "productName": "ETH II Wallet",
+  "copyright": "Copyright © 2025 BitsPleaseYT",
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    "main.js",
+    "preload.js",
+    "renderer/**/*",
+    "assets/**/*",
+    "node_modules/**/*",
+    "!node_modules/canvas/**/*",
+    "!node_modules/electron/**/*"
+  ],
+  "extraResources": [],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/ethii-256.png",
+    "publisherName": "BitsPleaseYT"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "assets/ethii.ico",
+    "uninstallerIcon": "assets/ethii.ico",
+    "installerHeaderIcon": "assets/ethii.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "ETH II Wallet"
+  }
 }
