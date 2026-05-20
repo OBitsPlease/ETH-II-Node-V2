@@ -11,6 +11,18 @@ Write-Host "  ETHII Miner Suite - ETH 2.0 Proof of Work" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
+# ── Auto-updater (wallet + node + stratum) ─────────────────────────────────
+$UpdaterScript = Join-Path $RootDir "update-manager.ps1"
+if (Test-Path $UpdaterScript) {
+  Write-Host "Checking for suite/wallet updates..." -ForegroundColor Cyan
+  try {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $UpdaterScript -Mode auto
+  } catch {
+    Write-Host "  WARNING: updater failed, continuing launch: $_" -ForegroundColor Yellow
+  }
+  Write-Host ""
+}
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 $EthiiExe    = Join-Path $RootDir "ethii.exe"
 $StratumExe  = Join-Path $RootDir "stratum.exe"

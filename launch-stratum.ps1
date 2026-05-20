@@ -3,6 +3,18 @@
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Auto-update suite components before launching standalone stratum mode.
+$UpdaterScript = Join-Path $ScriptDir "update-manager.ps1"
+if (Test-Path $UpdaterScript) {
+    Write-Host "Checking for suite updates..." -ForegroundColor Cyan
+    try {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $UpdaterScript -Mode auto -SkipWallet
+    } catch {
+        Write-Host "WARNING: updater failed, continuing stratum launch: $_" -ForegroundColor Yellow
+    }
+    Write-Host ""
+}
+
 $RpcPort       = 8545
 $StratumPort   = 3335
 $DashboardPort = 8082

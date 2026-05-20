@@ -48,6 +48,7 @@ jobs:
             wallet/dist/*.exe
             stratum.exe
             ethii.exe
+            suite-version.txt
             watchdog-autopilot.ps1
             launch-stratum.ps1
             README.md

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const { spawn } = require('child_process');
 const { ethers } = require('ethers');
 
 // Crash/close log — defined first so all handlers can use it
@@ -26,6 +27,8 @@ let RPC_PORT = 8545; // default, may be updated by port scan
 let RPC_URL = 'http://127.0.0.1:8545';
 const PUBLIC_RPC_URL = 'http://91.99.231.217:8545'; // VPS public node fallback
 const READ_RPC_URL = PUBLIC_RPC_URL; // canonical chain source for wallet reads/tx
+const RELEASES_API_URL = 'https://api.github.com/repos/OBitsPlease/ethii-miner-suite/releases';
+const HTTP_HEADERS = { 'User-Agent': 'ETHII-Wallet-Updater' };
 const CHAIN_ID = 2048;
 const BOOTNODE_ENODE = 'enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303';
 const AUTO_NUDGE_INTERVAL_MS = 20000;
@@ -34,6 +37,88 @@ const AUTO_NUDGE_LAG_THRESHOLD = 2;
 let mainWindow;
 let provider;
 let lastAutoNudgeAt = 0;
+
+function normalizeVersion(v) {
+  return String(v || '').replace(/^wallet-v/, '').replace(/^v/, '').trim();
+}
+
+function compareVersions(a, b) {
+  const pa = normalizeVersion(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = normalizeVersion(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const av = pa[i] || 0;
+    const bv = pb[i] || 0;
+    if (av > bv) return 1;
+    if (av < bv) return -1;
+  }
+  return 0;
+}
+
+async function backupWalletBeforeUpdate() {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupDir = path.join(app.getPath('userData'), 'update-backups', `pre-update-${stamp}`);
+    fs.mkdirSync(backupDir, { recursive: true });
+
+    if (WALLET_FILE && fs.existsSync(WALLET_FILE)) {
+      fs.copyFileSync(WALLET_FILE, path.join(backupDir, 'ethii-wallet.json'));
+    }
+
+    const note = [
+      `created=${new Date().toISOString()}`,
+      `appVersion=${app.getVersion()}`,
+      'type=wallet pre-update backup',
+    ].join('\n');
+    fs.writeFileSync(path.join(backupDir, 'BACKUP-INFO.txt'), note, 'utf8');
+  } catch (e) {
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] backup-before-update-failed: ${e.message}\n`);
+  }
+}
+
+async function checkForWalletUpdate() {
+  if (process.platform !== 'win32') return;
+  try {
+    const res = await fetch(RELEASES_API_URL, { headers: HTTP_HEADERS, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return;
+    const releases = await res.json();
+    const walletReleases = (Array.isArray(releases) ? releases : [])
+      .filter((r) => r && r.tag_name && /^wallet-v\d+\.\d+\.\d+$/.test(r.tag_name) && !r.draft && !r.prerelease)
+      .sort((a, b) => new Date(b.published_at || 0) - new Date(a.published_at || 0));
+    const latest = walletReleases[0];
+    if (!latest) return;
+
+    const currentVersion = app.getVersion();
+    const latestVersion = normalizeVersion(latest.tag_name);
+    if (compareVersions(currentVersion, latestVersion) >= 0) return;
+
+    const installer = (latest.assets || []).find((a) => /\.exe$/i.test(a.name || ''));
+    if (!installer || !installer.browser_download_url) return;
+
+    const prompt = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['Update now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Wallet Update Available',
+      message: `A new wallet version is available (v${latestVersion}).`,
+      detail: 'Before updating, verify you have your wallet password and seed phrase backed up. A dated backup will be created automatically before install.',
+    });
+    if (prompt.response !== 0) return;
+
+    await backupWalletBeforeUpdate();
+
+    const tmpExe = path.join(require('os').tmpdir(), `ethii-wallet-update-${latestVersion}.exe`);
+    const download = await fetch(installer.browser_download_url, { headers: HTTP_HEADERS, signal: AbortSignal.timeout(300000) });
+    if (!download.ok) throw new Error(`download failed: ${download.status}`);
+    const bytes = Buffer.from(await download.arrayBuffer());
+    fs.writeFileSync(tmpExe, bytes);
+
+    spawn(tmpExe, ['/S'], { detached: true, stdio: 'ignore' }).unref();
+    app.quit();
+  } catch (e) {
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] wallet-update-check-failed: ${e.message}\n`);
+  }
+}
 
 // Check if a port is in use
 function isPortInUse(port) {
@@ -107,6 +192,9 @@ app.whenReady().then(async () => {
   RPC_URL = `http://127.0.0.1:${RPC_PORT}`;
   createWindow();
   tryConnectProvider();
+  setTimeout(() => {
+    checkForWalletUpdate().catch(() => {});
+  }, 4000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
