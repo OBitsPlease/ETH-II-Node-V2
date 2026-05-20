@@ -148,7 +148,6 @@ async function findNodePort(base = 8545) {
   return base;
 }
 
-function createWindow() {
 // Write the correct VPS bootnode into static-nodes.json and config.toml so the
 // local ethii node always has a peer to sync from, even on a fresh install.
 // Tries both <datadir> candidates: one level up from wallet (dev layout) and
@@ -178,6 +177,8 @@ function ensureBootstrapFiles() {
     }
   }
 }
+
+function createWindow() {
 
   mainWindow = new BrowserWindow({
     width: 1000,
