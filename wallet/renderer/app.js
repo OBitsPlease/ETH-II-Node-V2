@@ -170,10 +170,10 @@ function openDashboard() {
   document.getElementById('receive-address-input').value = currentAddress;
   // Update node command with real address
   document.querySelector('.code-block').textContent =
-    `ethii.exe --datadir ".\\data" --networkid 2048 --http --http.port 8545 --http.api "eth,net,web3,miner,ethash,txpool" --http.corsdomain "*" --miner.pending.feeRecipient ${currentAddress}`;
+    `ethii.exe --datadir ".\\data" --networkid 2048 --http --http.addr 127.0.0.1 --http.port 8545 --http.api "eth,net,web3,miner,ethash,txpool,admin,debug" --http.corsdomain "*" --http.vhosts "*" --miner.pending.feeRecipient ${currentAddress}`;
   showScreen('screen-dashboard');
   showView('view-wallet');
-  refreshBalance();
+  refreshBalance({ showSpinner: true });
   refreshNodeStatus();
   // Update stratum URL with current address
   const stratumEl = document.getElementById('stratum-url');
@@ -185,23 +185,29 @@ function truncateAddress(addr) {
 }
 
 // ---- Balance ----
-async function refreshBalance() {
-  console.log('[UI] refreshBalance() called for', currentAddress);
-  document.getElementById('balance-value').textContent = '…';
-  const result = await window.ethii.getBalance({ address: currentAddress });
-  console.log('[UI] getBalance result:', result);
-  if (result.success) {
-    const formattedBalance = parseFloat(result.balance).toFixed(4);
-    console.log('[UI] Setting balance to:', formattedBalance);
-    document.getElementById('balance-value').textContent = formattedBalance;
+async function refreshBalance({ showSpinner = false } = {}) {
+  if (!currentAddress) return;
+  const el = document.getElementById('balance-value');
+  // Only blank the display on explicit first-load or manual refresh, not background polls
+  if (showSpinner) el.textContent = '…';
+  let result;
+  try {
+    result = await window.ethii.getBalance({ address: currentAddress });
+  } catch (e) {
+    if (showSpinner) el.textContent = '—';
+    return;
+  }
+  if (result && result.success) {
+    const num = parseFloat(result.balance);
+    el.textContent = isFinite(num) ? num.toFixed(4) : '—';
   } else {
-    console.log('[UI] Balance error:', result.error);
-    document.getElementById('balance-value').textContent = '—';
-    showToast(result.error);
+    // Only overwrite with '—' if we haven't shown a real value yet
+    if (el.textContent === '…' || el.textContent === '—') el.textContent = '—';
+    if (result && result.error && showSpinner) showToast(result.error);
   }
 }
 
-document.getElementById('btn-refresh-balance').addEventListener('click', refreshBalance);
+document.getElementById('btn-refresh-balance').addEventListener('click', () => refreshBalance({ showSpinner: true }));
 
 // ---- Send transaction ----
 document.getElementById('btn-send').addEventListener('click', async () => {
@@ -244,16 +250,58 @@ async function refreshNodeStatus() {
   console.log('[UI] refreshNodeStatus() called');
   const indicator = document.getElementById('node-indicator');
   const statusText = document.getElementById('node-status-text');
+  const syncFill = document.getElementById('node-sync-progress-fill');
+  const syncLabel = document.getElementById('node-sync-progress-label');
   const result = await window.ethii.getNodeStatus();
   console.log('[UI] getNodeStatus result:', result);
   if (result.success) {
-    indicator.className = 'node-indicator online';
-    statusText.textContent = `Connected — Block #${result.blockNumber}`;
-    document.getElementById('node-block').textContent = result.blockNumber;
-    console.log('[UI] Node online, block:', result.blockNumber);
+    const localBlock = Number.isFinite(result.localBlockNumber) ? result.localBlockNumber : result.blockNumber;
+    const networkBlock = Number.isFinite(result.networkBlockNumber) ? result.networkBlockNumber : null;
+    const peers = Number.isFinite(result.peers) ? result.peers : 0;
+    const networkPeers = Number.isFinite(result.networkPeers) ? result.networkPeers : null;
+    const lag = Number.isFinite(result.syncLag) ? result.syncLag : null;
+
+    const isSynced = lag !== null ? lag <= 3 : peers > 0;
+    indicator.className = isSynced ? 'node-indicator online' : 'node-indicator offline';
+    statusText.textContent = isSynced
+      ? `Connected - Local #${localBlock}${networkBlock !== null ? ` / Network #${networkBlock}` : ''}`
+      : `Local node behind - Local #${localBlock}${networkBlock !== null ? ` / Network #${networkBlock}` : ''}`;
+
+    document.getElementById('node-block').textContent = Number.isFinite(localBlock) ? localBlock : '—';
+    document.getElementById('node-network-block').textContent = networkBlock !== null ? networkBlock : '—';
+    document.getElementById('node-network-peers').textContent = networkPeers !== null ? networkPeers : '—';
+    document.getElementById('node-sync-lag').textContent = lag !== null ? lag : '—';
+    document.getElementById('node-peers').textContent = peers;
+
+    if (lag !== null && lag >= 2 && networkBlock !== null && localBlock < networkBlock) {
+      window.ethii.autoSyncNudge({ lag, reason: 'wallet-node-status' }).catch(() => {});
+    }
+
+    if (syncFill && syncLabel) {
+      if (networkBlock !== null && networkBlock > 0) {
+        const pct = Math.max(0, Math.min(100, (localBlock / networkBlock) * 100));
+        if (peers === 0 && localBlock === 0) {
+          syncFill.classList.add('indeterminate');
+          syncFill.style.width = '45%';
+          syncLabel.textContent = 'Waiting for peers to begin sync...';
+        } else {
+          syncFill.classList.remove('indeterminate');
+          syncFill.style.width = `${pct.toFixed(1)}%`;
+          syncLabel.textContent = lag === 0
+            ? 'Fully synced with network.'
+            : `Syncing: ${localBlock} / ${networkBlock} (${pct.toFixed(1)}%)`;
+        }
+      } else {
+        syncFill.classList.add('indeterminate');
+        syncFill.style.width = '45%';
+        syncLabel.textContent = 'Connected locally, checking network height...';
+      }
+    }
+
+    console.log('[UI] Node status local/network/peers/lag:', localBlock, networkBlock, peers, lag);
     // Auto-mine: if enabled and not already mining, start
     const autoMine = document.getElementById('auto-mine-toggle');
-    if (autoMine && autoMine.checked) {
+    if (autoMine && autoMine.checked && peers > 0) {
       const status = await window.ethii.minerStatus();
       if (status.success && !status.mining) {
         const threads = parseInt(document.getElementById('cpu-thread-count').value) || 1;
@@ -264,8 +312,17 @@ async function refreshNodeStatus() {
   } else {
     console.log('[UI] Node offline, error:', result.error);
     indicator.className = 'node-indicator offline';
-    statusText.textContent = 'Node offline — start ethii.exe to connect';
+    statusText.textContent = 'Node offline - start ethii.exe to connect';
     document.getElementById('node-block').textContent = '—';
+    document.getElementById('node-network-block').textContent = '—';
+    document.getElementById('node-network-peers').textContent = '—';
+    document.getElementById('node-sync-lag').textContent = '—';
+    document.getElementById('node-peers').textContent = '—';
+    if (syncFill && syncLabel) {
+      syncFill.classList.remove('indeterminate');
+      syncFill.style.width = '0%';
+      syncLabel.textContent = 'Node offline.';
+    }
   }
 }
 

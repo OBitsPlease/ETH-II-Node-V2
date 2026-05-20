@@ -249,8 +249,18 @@
           <div id="node-status-text">Checking...</div>
         </div>
         <div class="info-grid" id="node-info-grid">
-          <div class="info-chip">Block Height <span class="chip-val" id="node-block">—</span></div>
-          <div class="info-chip">RPC <span class="chip-val mono">localhost:8545</span></div>
+          <div class="info-chip">Local Block <span class="chip-val" id="node-block">—</span></div>
+          <div class="info-chip">Network Block <span class="chip-val" id="node-network-block">—</span></div>
+          <div class="info-chip">Network Peers <span class="chip-val" id="node-network-peers">—</span></div>
+          <div class="info-chip">Sync Lag <span class="chip-val" id="node-sync-lag">—</span></div>
+          <div class="info-chip">Peers <span class="chip-val" id="node-peers">—</span></div>
+          <div class="info-chip">Node RPC <span class="chip-val mono">localhost:8545 (local control)</span></div>
+        </div>
+        <div class="sync-progress" id="node-sync-progress">
+          <div class="sync-progress-label" id="node-sync-progress-label">Checking sync status...</div>
+          <div class="sync-progress-bar">
+            <div class="sync-progress-fill" id="node-sync-progress-fill" style="width: 0%"></div>
+          </div>
         </div>
         <div class="section-title">Start Node Command</div>
         <div class="code-block">ethii.exe --datadir ".\data" --networkid 2048 --http --http.port 8545 --miner.etherbase YOUR_ADDRESS</div>

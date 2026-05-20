@@ -14,6 +14,8 @@ if ($Etherbase -eq "") {
 $NodeUrl = "http://127.0.0.1:8545"
 $StatsUrl = "http://127.0.0.1:8082/api/stats"
 $MinersUrl = "http://127.0.0.1:8082/api/miners"
+$PublicRpcUrl = "http://91.99.231.217:8545"
+$BootnodeEnode = "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
 $AsicIp = "YOUR_ASIC_IP"
 $AsicBase = "http://$AsicIp"
 $LogFile = Join-Path $Root "watchdog-autopilot.log"
@@ -45,7 +47,7 @@ function Restart-Node {
     Get-Process -Name ethii -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 1
     $feeArg = if ($Etherbase) { " --miner.pending.feeRecipient $Etherbase" } else { "" }
-    Start-Process -FilePath $NodeExe -ArgumentList "--datadir `"$DataDir`" --networkid 2048 --gcmode archive --state.scheme hash --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3,miner,ethash,txpool --http.corsdomain * --http.vhosts * --port 30303$feeArg --verbosity 3 --miner.recommit 30s" -WindowStyle Normal
+    Start-Process -FilePath $NodeExe -ArgumentList "--datadir `"$DataDir`" --networkid 2048 --gcmode archive --state.scheme hash --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3,miner,ethash,txpool,admin,debug --http.corsdomain * --http.vhosts * --port 30303 --bootnodes $BootnodeEnode$feeArg --verbosity 3 --miner.recommit 30s" -WindowStyle Normal
 }
 
 function Restart-Stratum {
@@ -68,6 +70,29 @@ function Get-Miners {
         return Invoke-RestMethod -Uri $MinersUrl -Method Get -TimeoutSec 5
     } catch {
         return @()
+    }
+}
+
+function Nudge-NodeSync {
+    try {
+        Invoke-RestMethod -Uri $NodeUrl -Method Post -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $BootnodeEnode + '"],"id":1}') -ContentType "application/json" -TimeoutSec 3 | Out-Null
+    } catch { }
+
+    try {
+        $localBlockHex = (Invoke-RestMethod -Uri $NodeUrl -Method Post -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' -ContentType "application/json" -TimeoutSec 3).result
+        $remoteLatest = Invoke-RestMethod -Uri $PublicRpcUrl -Method Post -Body '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' -ContentType "application/json" -TimeoutSec 5
+        $remoteBlockHex = $remoteLatest.result.number
+        $remoteHash = $remoteLatest.result.hash
+        if ($localBlockHex -and $remoteBlockHex -and $remoteHash) {
+            $localBlock = [Convert]::ToInt64($localBlockHex, 16)
+            $remoteBlock = [Convert]::ToInt64($remoteBlockHex, 16)
+            if ($localBlock -lt $remoteBlock) {
+                Invoke-RestMethod -Uri $NodeUrl -Method Post -Body ('{"jsonrpc":"2.0","method":"debug_sync","params":["' + $remoteHash + '"],"id":1}') -ContentType "application/json" -TimeoutSec 5 | Out-Null
+                Log "Sync nudge sent local=$localBlock remote=$remoteBlock"
+            }
+        }
+    } catch {
+        Log "Sync nudge skipped: $($_.Exception.Message)"
     }
 }
 
@@ -99,6 +124,8 @@ while ($true) {
         Start-Sleep -Seconds 8
         continue
     }
+
+    Nudge-NodeSync
 
     $miners = Get-Miners
     $minerCount = [int]$stats.pool.miners

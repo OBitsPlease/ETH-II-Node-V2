@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('ethii', {
   sendTx:        (args) => ipcRenderer.invoke('send-tx', args),
   getTxHistory:  (args) => ipcRenderer.invoke('get-tx-history', args),
   getNodeStatus: ()     => ipcRenderer.invoke('get-node-status'),
+  autoSyncNudge: (args) => ipcRenderer.invoke('auto-sync-nudge', args),
 
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),

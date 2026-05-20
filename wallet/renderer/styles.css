@@ -416,6 +416,36 @@ input[readonly] { color: var(--text-sub); cursor: default; }
 @keyframes blink {
   0%, 100% { opacity: 1; } 50% { opacity: 0.5; }
 }
+.sync-progress {
+  margin: -4px 0 22px;
+}
+.sync-progress-label {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-bottom: 8px;
+}
+.sync-progress-bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.sync-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), #56d8ff);
+  width: 0%;
+  transition: width 0.35s ease;
+}
+.sync-progress-fill.indeterminate {
+  width: 45%;
+  animation: syncIndeterminate 1.2s linear infinite;
+}
+@keyframes syncIndeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(260%); }
+}
 .code-block {
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 14px 16px;

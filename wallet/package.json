@@ -1,13 +1,12 @@
 {
   "name": "ethii-wallet",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "ETHII Wallet - ETH II Proof of Work",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
-    "build:win:walletonly": "electron-builder --win --config electron-builder.wallet-only.json",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux"
   },

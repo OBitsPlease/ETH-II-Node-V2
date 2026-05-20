@@ -25,10 +25,15 @@ let WALLET_FILE; // initialized after app is ready
 let RPC_PORT = 8545; // default, may be updated by port scan
 let RPC_URL = 'http://127.0.0.1:8545';
 const PUBLIC_RPC_URL = 'http://91.99.231.217:8545'; // VPS public node fallback
+const READ_RPC_URL = PUBLIC_RPC_URL; // canonical chain source for wallet reads/tx
 const CHAIN_ID = 2048;
+const BOOTNODE_ENODE = 'enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303';
+const AUTO_NUDGE_INTERVAL_MS = 20000;
+const AUTO_NUDGE_LAG_THRESHOLD = 2;
 
 let mainWindow;
 let provider;
+let lastAutoNudgeAt = 0;
 
 // Check if a port is in use
 function isPortInUse(port) {
@@ -120,7 +125,7 @@ app.on('window-all-closed', () => {
 function tryConnectProvider() {
   try {
     const network = ethers.Network.from({ chainId: CHAIN_ID, name: 'ethii' });
-    provider = new ethers.JsonRpcProvider(RPC_URL, network, { staticNetwork: network });
+    provider = new ethers.JsonRpcProvider(READ_RPC_URL, network, { staticNetwork: network });
   } catch (e) {
     provider = null;
   }
@@ -186,9 +191,12 @@ ipcMain.handle('wallet-import', async (_, { privateKey, password }) => {
 // Get balance — uses direct RPC fetch for reliability (ethers.js provider may be warming up)
 ipcMain.handle('get-balance', async (_, { address }) => {
   try {
-    const result = await rpcCall('eth_getBalance', [address, 'latest']);
+    if (!address) throw new Error('No address');
+    const result = await rpcCallRead('eth_getBalance', [address, 'latest']);
+    if (!result || result === '0x') throw new Error('Empty RPC result');
     const balanceBN = BigInt(result);
     const balanceEth = Number(balanceBN) / 1e18;
+    if (!isFinite(balanceEth)) throw new Error('Non-finite balance');
     return { success: true, balance: balanceEth.toFixed(4) };
   } catch (e) {
     return { success: false, error: 'Node offline. Start ethii.exe to connect.' };
@@ -199,6 +207,7 @@ ipcMain.handle('get-balance', async (_, { address }) => {
 ipcMain.handle('send-tx', async (_, { privateKey, to, amount, gasPrice }) => {
   try {
     if (!provider) tryConnectProvider();
+    if (!provider) throw new Error('RPC unavailable');
     const wallet = new ethers.Wallet(privateKey, provider);
     const tx = await wallet.sendTransaction({
       to,
@@ -229,16 +238,43 @@ ipcMain.handle('get-tx-history', async (_, { address }) => {
 // Get node status — uses direct RPC fetch for reliability
 ipcMain.handle('get-node-status', async () => {
   try {
-    const blockHex = await rpcCall('eth_blockNumber', []);
-    const blockNum = parseInt(blockHex, 16);
-    const block = await rpcCall('eth_getBlockByNumber', ['latest', false]);
-    // Reconnect ethers provider now that we know the node is up
-    if (!provider) tryConnectProvider();
+    const [localBlockHex, localPeersHex] = await Promise.all([
+      rpcCallLocal('eth_blockNumber', []),
+      rpcCallLocal('net_peerCount', []),
+    ]);
+
+    const localBlockNum = parseInt(localBlockHex, 16);
+    const localPeers = parseInt(localPeersHex, 16);
+    const localBlock = await rpcCallLocal('eth_getBlockByNumber', ['latest', false]);
+
+    let networkBlockNum = null;
+    let networkPeers = null;
+    try {
+      const [networkBlockHex, networkPeersHex] = await Promise.all([
+        rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
+        rpcCallOnUrl(READ_RPC_URL, 'net_peerCount', []),
+      ]);
+      networkBlockNum = parseInt(networkBlockHex, 16);
+      networkPeers = parseInt(networkPeersHex, 16);
+    } catch {
+      networkBlockNum = null;
+      networkPeers = null;
+    }
+
+    const syncLag = (Number.isFinite(networkBlockNum) && Number.isFinite(localBlockNum))
+      ? Math.max(0, networkBlockNum - localBlockNum)
+      : null;
+
     return {
       success: true,
-      blockNumber: blockNum,
-      timestamp: block ? parseInt(block.timestamp, 16) : null,
-      gasLimit: block ? parseInt(block.gasLimit, 16).toString() : null,
+      blockNumber: localBlockNum,
+      localBlockNumber: localBlockNum,
+      networkBlockNumber: networkBlockNum,
+      networkPeers: Number.isFinite(networkPeers) ? networkPeers : null,
+      peers: Number.isFinite(localPeers) ? localPeers : 0,
+      syncLag,
+      timestamp: localBlock ? parseInt(localBlock.timestamp, 16) : null,
+      gasLimit: localBlock ? parseInt(localBlock.gasLimit, 16).toString() : null,
       rpcPort: RPC_PORT,
     };
   } catch (e) {
@@ -246,33 +282,118 @@ ipcMain.handle('get-node-status', async () => {
   }
 });
 
+async function performSyncNudge({ force = false, lag = null, reason = 'wallet-auto' } = {}) {
+  const now = Date.now();
+  if (!force && now - lastAutoNudgeAt < AUTO_NUDGE_INTERVAL_MS) {
+    return { success: true, nudged: false, reason: 'cooldown' };
+  }
+  if (!force && Number.isFinite(lag) && lag < AUTO_NUDGE_LAG_THRESHOLD) {
+    return { success: true, nudged: false, reason: 'lag-below-threshold' };
+  }
 
-// Mining RPC helpers  tries local node first, falls back to VPS public node
-async function rpcCall(method, params = []) {
-  const urls = (RPC_URL !== PUBLIC_RPC_URL) ? [RPC_URL, PUBLIC_RPC_URL] : [PUBLIC_RPC_URL];
+  try {
+    // Keep the VPS peer sticky in case local discovery drifts to stale peers.
+    await rpcCallLocal('admin_addPeer', [BOOTNODE_ENODE]);
+  } catch {
+    // Ignore peer-add failures when admin API is unavailable (manual node launch).
+  }
+
+  try {
+    const [localBlockHex, remoteLatest] = await Promise.all([
+      rpcCallLocal('eth_blockNumber', []),
+      rpcCallOnUrl(READ_RPC_URL, 'eth_getBlockByNumber', ['latest', false]),
+    ]);
+    const localBlock = parseInt(localBlockHex, 16);
+    const remoteBlock = remoteLatest && remoteLatest.number ? parseInt(remoteLatest.number, 16) : NaN;
+    const remoteHash = remoteLatest && remoteLatest.hash ? remoteLatest.hash : '';
+
+    if (Number.isFinite(localBlock) && Number.isFinite(remoteBlock) && remoteHash && localBlock < remoteBlock) {
+      await rpcCallLocal('debug_sync', [remoteHash]);
+      lastAutoNudgeAt = now;
+      return {
+        success: true,
+        nudged: true,
+        localBlock,
+        networkBlock: remoteBlock,
+        reason,
+      };
+    }
+
+    return {
+      success: true,
+      nudged: false,
+      localBlock: Number.isFinite(localBlock) ? localBlock : null,
+      networkBlock: Number.isFinite(remoteBlock) ? remoteBlock : null,
+      reason: 'already-at-tip-or-missing-head',
+    };
+  } catch (e) {
+    return { success: false, nudged: false, error: e.message, reason };
+  }
+}
+
+ipcMain.handle('auto-sync-nudge', async (_, payload) => {
+  const input = payload || {};
+  return performSyncNudge({
+    force: !!input.force,
+    lag: Number.isFinite(input.lag) ? input.lag : null,
+    reason: input.reason || 'wallet-auto',
+  });
+});
+
+
+// Wallet read RPC helper - public canonical first, local fallback.
+async function rpcCallRead(method, params = []) {
+  const urls = (READ_RPC_URL !== RPC_URL) ? [READ_RPC_URL, RPC_URL] : [READ_RPC_URL];
   let lastErr;
   for (const url of urls) {
     try {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-      });
-      let json;
-      try { json = await resp.json(); }
-      catch (parseErr) {
-        const raw = await resp.text().catch(() => '(unreadable)');
-        throw new Error(`Invalid JSON from node (${method}): ${raw.slice(0, 120)}`);
-      }
-      if (json.error) throw new Error(json.error.message);
-      return json.result;
+      return await rpcCallOnUrl(url, method, params);
     } catch (e) { lastErr = e; }
   }
   throw lastErr;
 }
+
+// Local-only RPC helper for node control and mining controls.
+async function rpcCallLocal(method, params = []) {
+  return rpcCallOnUrl(RPC_URL, method, params);
+}
+
+async function rpcCallOnUrl(url, method, params = []) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  let json;
+  try { json = await resp.json(); }
+  catch (parseErr) {
+    const raw = await resp.text().catch(() => '(unreadable)');
+    throw new Error(`Invalid JSON from node (${method}): ${raw.slice(0, 120)}`);
+  }
+  if (json.error) throw new Error(json.error.message);
+  return json.result;
+}
+
+async function isLikelyIsolatedLocalNode() {
+  if (!RPC_URL || RPC_URL === PUBLIC_RPC_URL) return false;
+  try {
+    const [peersHex, blockHex] = await Promise.all([
+      rpcCallOnUrl(RPC_URL, 'net_peerCount', []),
+      rpcCallOnUrl(RPC_URL, 'eth_blockNumber', []),
+    ]);
+    const peers = parseInt(peersHex, 16);
+    const block = parseInt(blockHex, 16);
+    return Number.isFinite(peers) && Number.isFinite(block) && peers === 0 && block < 1000;
+  } catch {
+    return false;
+  }
+}
 ipcMain.handle('mining-start', async (_, { threads }) => {
   try {
-    await rpcCall('miner_start', [threads]);
+    if (await isLikelyIsolatedLocalNode()) {
+      return { success: false, error: 'Local node is isolated (0 peers). Wait for peer sync before mining.' };
+    }
+    await rpcCallLocal('miner_start', [threads]);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -281,7 +402,7 @@ ipcMain.handle('mining-start', async (_, { threads }) => {
 
 ipcMain.handle('mining-stop', async () => {
   try {
-    await rpcCall('miner_stop', []);
+    await rpcCallLocal('miner_stop', []);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -290,8 +411,8 @@ ipcMain.handle('mining-stop', async () => {
 
 ipcMain.handle('mining-status', async () => {
   try {
-    const mining = await rpcCall('miner_mining', []);
-    const hashrate = await rpcCall('miner_hashrate', []);
+    const mining = await rpcCallLocal('miner_mining', []);
+    const hashrate = await rpcCallLocal('miner_hashrate', []);
     return { success: true, mining, hashrate };
   } catch (e) {
     return { success: false, mining: false, hashrate: 0 };

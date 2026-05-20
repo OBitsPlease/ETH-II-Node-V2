@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,9 @@ type rpcResponse struct {
 }
 
 func rpcCall(method string, params []interface{}) (json.RawMessage, error) {
+	if params == nil {
+		params = []interface{}{}
+	}
 	body, _ := json.Marshal(rpcRequest{JSONRPC: "2.0", Method: method, Params: params, ID: 1})
 	resp, err := http.Post(*nodeURL, "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -232,6 +236,86 @@ type MinerInfo struct {
 	LastSeen    time.Time
 }
 
+func isHexAddressLike(v string) bool {
+	v = strings.TrimSpace(v)
+	if len(v) != 42 {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(v), "0x") {
+		return false
+	}
+	for _, ch := range v[2:] {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// parseMinerIdentity accepts either "address.worker", "address", or "worker".
+// Returns parsed address/worker while keeping backward-compatible worker-only logins.
+func parseMinerIdentity(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	if parts := strings.SplitN(raw, ".", 2); len(parts) == 2 {
+		addr := strings.TrimSpace(parts[0])
+		worker := strings.TrimSpace(parts[1])
+		if !isHexAddressLike(addr) {
+			// Treat invalid left side as worker-only input.
+			if worker == "" {
+				return "", raw
+			}
+			return "", worker
+		}
+		if worker == "" {
+			worker = addr
+		}
+		return addr, worker
+	}
+
+	if isHexAddressLike(raw) {
+		return raw, raw
+	}
+	return "", raw
+}
+
+func parseWorkerHint(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "x") {
+		return ""
+	}
+	if addr, worker := parseMinerIdentity(raw); worker != "" && worker != addr {
+		return worker
+	}
+	if isHexAddressLike(raw) {
+		return ""
+	}
+	return raw
+}
+
+func resolveMinerIdentity(params []string, fallbackWorker string) (string, string) {
+	address := ""
+	worker := ""
+	if len(params) > 0 {
+		address, worker = parseMinerIdentity(params[0])
+	}
+	if worker == "" || worker == address {
+		for _, param := range params[1:] {
+			if hint := parseWorkerHint(param); hint != "" {
+				worker = hint
+				break
+			}
+		}
+	}
+	if worker == "" {
+		worker = fallbackWorker
+	}
+	return address, worker
+}
+
 var (
 	minersMu     sync.RWMutex
 	activeMiners = map[int64]*MinerInfo{}
@@ -294,7 +378,14 @@ func getPoolHashrate() float64 {
 	defer minersMu.RUnlock()
 	var total float64
 	for _, m := range activeMiners {
-		total += m.Hashrate
+		if m.Hashrate > 0 {
+			total += m.Hashrate
+			continue
+		}
+		// Some ASIC miners do not report eth_submitHashrate; estimate from shares.
+		if time.Since(m.LastSeen) < 2*time.Minute {
+			total += estimateWorkerHashrate(m.Worker, 5*time.Minute)
+		}
 	}
 	return total
 }
@@ -319,7 +410,7 @@ var (
 	recentShares []ShareEvent // cap 200
 
 	blocksMu     sync.Mutex
-	recentBlocks []BlockRecord // cap 50
+	recentBlocks []BlockRecord // cap 10000
 )
 
 func recordShare(worker string, valid bool) {
@@ -343,13 +434,24 @@ func recordShare(worker string, valid bool) {
 			At:       time.Now(),
 			Reward:   5.0,
 		})
-		if len(recentBlocks) > 50 {
-			recentBlocks = recentBlocks[len(recentBlocks)-50:]
+		if len(recentBlocks) > 10000 {
+			recentBlocks = recentBlocks[len(recentBlocks)-10000:]
 		}
 		blocksMu.Unlock()
 		totalMinedMu.Lock()
 		totalMined += 5.0
 		totalMinedMu.Unlock()
+
+		if worker != "" {
+			blockTotalsMu.Lock()
+			if blockTotals.WorkerBlocks == nil {
+				blockTotals.WorkerBlocks = map[string]int64{}
+			}
+			blockTotals.TotalBlocks++
+			blockTotals.WorkerBlocks[worker]++
+			blockTotalsMu.Unlock()
+			saveBlockTotals()
+		}
 	} else {
 		atomic.AddInt64(&totalRejected, 1)
 	}
@@ -362,6 +464,11 @@ type PayoutConfig struct {
 	MinPayment    float64 `json:"minPayment"`
 }
 
+type BlockTotals struct {
+	TotalBlocks  int64            `json:"totalBlocks"`
+	WorkerBlocks map[string]int64 `json:"workerBlocks"`
+}
+
 var (
 	payoutCfgMu    sync.RWMutex
 	payoutCfg      = PayoutConfig{MinPayment: 0.1}
@@ -369,6 +476,8 @@ var (
 	workerLabels   = map[string]string{}
 	totalMinedMu   sync.Mutex
 	totalMined     float64
+	blockTotalsMu  sync.RWMutex
+	blockTotals    = BlockTotals{WorkerBlocks: map[string]int64{}}
 )
 
 // poolEtherbase is the node's configured mining reward address, fetched at startup.
@@ -420,6 +529,21 @@ func loadSettings() {
 		json.Unmarshal(data, &workerLabels)
 		workerLabelsMu.Unlock()
 	}
+	if data, err := os.ReadFile(filepath.Join(*settingsDir, "block_totals.json")); err == nil {
+		blockTotalsMu.Lock()
+		_ = json.Unmarshal(data, &blockTotals)
+		if blockTotals.WorkerBlocks == nil {
+			blockTotals.WorkerBlocks = map[string]int64{}
+		}
+		if blockTotals.TotalBlocks == 0 && len(blockTotals.WorkerBlocks) > 0 {
+			var sum int64
+			for _, count := range blockTotals.WorkerBlocks {
+				sum += count
+			}
+			blockTotals.TotalBlocks = sum
+		}
+		blockTotalsMu.Unlock()
+	}
 }
 
 func savePayoutCfg() {
@@ -434,6 +558,86 @@ func saveWorkerLabels() {
 	data, _ := json.MarshalIndent(workerLabels, "", "  ")
 	workerLabelsMu.RUnlock()
 	os.WriteFile(filepath.Join(*settingsDir, "workers.json"), data, 0644)
+}
+
+func saveBlockTotals() {
+	blockTotalsMu.RLock()
+	data, _ := json.MarshalIndent(blockTotals, "", "  ")
+	blockTotalsMu.RUnlock()
+	_ = os.WriteFile(filepath.Join(*settingsDir, "block_totals.json"), data, 0644)
+}
+
+func countHistoricalPoolBlocks(minerAddress string) (int64, error) {
+	minerAddress = strings.ToLower(strings.TrimSpace(minerAddress))
+	if minerAddress == "" {
+		return 0, fmt.Errorf("missing miner address")
+	}
+
+	latestHex := rpcHexString("eth_blockNumber", nil)
+	latest := hexToUint64(latestHex)
+	var total int64
+
+	for blockNum := uint64(0); blockNum <= latest; blockNum++ {
+		blockHex := fmt.Sprintf("0x%x", blockNum)
+		raw, err := rpcCall("eth_getBlockByNumber", []interface{}{blockHex, false})
+		if err != nil {
+			return total, err
+		}
+		var block struct {
+			Miner string `json:"miner"`
+		}
+		if err := json.Unmarshal(raw, &block); err != nil {
+			continue
+		}
+		if strings.EqualFold(block.Miner, minerAddress) {
+			total++
+		}
+	}
+
+	return total, nil
+}
+
+func backfillHistoricalBlockTotals() {
+	blockTotalsMu.RLock()
+	existing := blockTotals.TotalBlocks
+	blockTotalsMu.RUnlock()
+	if existing > 0 {
+		return
+	}
+
+	miner := getPoolEtherbase()
+	if miner == "" {
+		return
+	}
+
+	log.Printf("[totals] No persisted totals found. Backfilling historical blocks for %s", miner)
+	total, err := countHistoricalPoolBlocks(miner)
+	if err != nil {
+		log.Printf("[totals] Historical backfill failed: %v", err)
+		return
+	}
+
+	if total <= 0 {
+		log.Printf("[totals] Historical backfill found no blocks")
+		return
+	}
+
+	const historicalBucket = "historical-unattributed"
+
+	blockTotalsMu.Lock()
+	if blockTotals.WorkerBlocks == nil {
+		blockTotals.WorkerBlocks = map[string]int64{}
+	}
+	if blockTotals.TotalBlocks < total {
+		blockTotals.TotalBlocks = total
+	}
+	if blockTotals.WorkerBlocks[historicalBucket] < total {
+		blockTotals.WorkerBlocks[historicalBucket] = total
+	}
+	blockTotalsMu.Unlock()
+
+	saveBlockTotals()
+	log.Printf("[totals] Historical backfill complete: %d total pool blocks", total)
 }
 
 // ─── Miner HR history ─────────────────────────────────────────────────────────
@@ -501,6 +705,80 @@ func getBalance(address, tag string) float64 {
 	return weiHexToETHII(hexBal)
 }
 
+func hexToUint64(hexValue string) uint64 {
+	value := new(big.Int)
+	if _, ok := value.SetString(strings.TrimPrefix(hexValue, "0x"), 16); !ok {
+		return 0
+	}
+	return value.Uint64()
+}
+
+func hexToDecString(hexValue string) string {
+	value := new(big.Int)
+	if _, ok := value.SetString(strings.TrimPrefix(hexValue, "0x"), 16); !ok {
+		return "0"
+	}
+	return value.String()
+}
+
+func rpcHexString(method string, params []interface{}) string {
+	raw, err := rpcCall(method, params)
+	if err != nil {
+		return ""
+	}
+	var out string
+	json.Unmarshal(raw, &out)
+	return out
+}
+
+type explorerBlockRPC struct {
+	Number       string            `json:"number"`
+	Hash         string            `json:"hash"`
+	ParentHash   string            `json:"parentHash"`
+	Miner        string            `json:"miner"`
+	Timestamp    string            `json:"timestamp"`
+	Transactions []json.RawMessage `json:"transactions"`
+	GasUsed      string            `json:"gasUsed"`
+	GasLimit     string            `json:"gasLimit"`
+	Difficulty   string            `json:"difficulty"`
+	Size         string            `json:"size"`
+	ExtraData    string            `json:"extraData"`
+}
+
+func decodeTransactions(items []json.RawMessage) []interface{} {
+	out := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		var decoded interface{}
+		if err := json.Unmarshal(item, &decoded); err == nil {
+			out = append(out, decoded)
+		}
+	}
+	return out
+}
+
+func formatExplorerBlock(block *explorerBlockRPC, full bool) map[string]interface{} {
+	if block == nil {
+		return nil
+	}
+	out := map[string]interface{}{
+		"number":     hexToUint64(block.Number),
+		"hash":       block.Hash,
+		"parentHash": block.ParentHash,
+		"miner":      block.Miner,
+		"timestamp":  hexToUint64(block.Timestamp),
+		"txCount":    len(block.Transactions),
+		"gasUsed":    hexToUint64(block.GasUsed),
+		"gasLimit":   hexToUint64(block.GasLimit),
+		"difficulty": hexToDecString(block.Difficulty),
+		"size":       hexToUint64(block.Size),
+		"extraData":  block.ExtraData,
+	}
+	if full {
+		out["transactions"] = decodeTransactions(block.Transactions)
+	}
+	return out
+}
+
 func sharesPerMin() float64 {
 	sharesMu.Lock()
 	defer sharesMu.Unlock()
@@ -512,6 +790,66 @@ func sharesPerMin() float64 {
 		}
 	}
 	return float64(count)
+}
+
+func currentDifficultyFloat() float64 {
+	netStatsMu.RLock()
+	dHex := netStats.Difficulty
+	netStatsMu.RUnlock()
+	if dHex == "" || dHex == "0x0" {
+		return 0
+	}
+	d := new(big.Int)
+	if _, ok := d.SetString(strings.TrimPrefix(dHex, "0x"), 16); !ok || d.Sign() == 0 {
+		return 0
+	}
+	f, _ := new(big.Float).SetInt(d).Float64()
+	return f
+}
+
+// estimateWorkerHashrate estimates MH/s from recent valid shares.
+// Equation: hashrate = shares_per_second * difficulty.
+func estimateWorkerHashrate(worker string, window time.Duration) float64 {
+	if worker == "" {
+		return 0
+	}
+	cutoff := time.Now().Add(-window)
+	count := 0
+
+	sharesMu.Lock()
+	for _, s := range recentShares {
+		if s.Valid && s.Worker == worker && s.At.After(cutoff) {
+			count++
+		}
+	}
+	sharesMu.Unlock()
+
+	if count < 2 {
+		return 0
+	}
+
+	difficulty := currentDifficultyFloat()
+	if difficulty <= 0 {
+		return 0
+	}
+
+	// Use the full rolling window for stability; short windows spike too much.
+	elapsed := window.Seconds()
+	if elapsed <= 0 {
+		return 0
+	}
+
+	sharesPerSecond := float64(count) / elapsed
+	est := (sharesPerSecond * difficulty) / 1e6 // MH/s
+
+	// Keep estimates within sane bounds relative to current network hashrate.
+	netStatsMu.RLock()
+	netHR := netStats.NetworkHR
+	netStatsMu.RUnlock()
+	if netHR > 0 && est > netHR*1.2 {
+		est = netHR * 1.2
+	}
+	return est
 }
 
 func roundLuck() float64 {
@@ -690,29 +1028,15 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 		case "mining.authorize":
 			var params []string
 			json.Unmarshal(msg.Params, &params)
-			worker := ""
-			if len(params) > 0 {
-				raw := params[0]
-				// Accept either "workerName" or "anyAddress.workerName" format.
-				// The wallet address for block rewards is always the node's etherbase —
-				// miners only need to provide a worker name to identify their rig.
-				if parts := strings.SplitN(raw, ".", 2); len(parts) == 2 {
-					worker = parts[1] // e.g. "0xAddr.rig1" → worker = "rig1"
-				} else {
-					worker = raw // e.g. "rig1" → worker = "rig1"
-				}
-				if worker == "" {
-					worker = raw
-				}
-			}
-			if worker == "" {
-				worker = fmt.Sprintf("miner-%d", subID)
+			address, worker := resolveMinerIdentity(params, fmt.Sprintf("miner-%d", subID))
+			if address == "" {
+				address = getPoolEtherbase()
 			}
 			m.workerID = worker
-			updateMinerWorker(subID, worker, getPoolEtherbase())
+			updateMinerWorker(subID, worker, address)
 			m.send(stratumMsg{ID: msg.ID, Result: true, Error: nil})
 			authorized = true
-			log.Printf("    Worker authorized: %s (pool addr: %s)", worker, getPoolEtherbase())
+			log.Printf("    Worker authorized: %s (miner addr: %s)", worker, address)
 			if w := wb.getCurrent(); w.HeaderHash != "" {
 				m.sendWork(w)
 			}
@@ -749,24 +1073,16 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 			// Params: [address, x] — just accept any login
 			var params []string
 			json.Unmarshal(msg.Params, &params)
-			worker := ""
-			if len(params) > 0 {
-				raw := params[0]
-				if parts := strings.SplitN(raw, ".", 2); len(parts) == 2 {
-					worker = parts[1]
-				} else {
-					worker = raw
-				}
-			}
-			if worker == "" {
-				worker = fmt.Sprintf("miner-%d", subID)
+			address, worker := resolveMinerIdentity(params, fmt.Sprintf("miner-%d", subID))
+			if address == "" {
+				address = getPoolEtherbase()
 			}
 			m.workerID = worker
 			m.ethProxy = true
-			updateMinerWorker(subID, worker, getPoolEtherbase())
+			updateMinerWorker(subID, worker, address)
 			m.send(stratumMsg{ID: msg.ID, Result: true, Error: nil})
 			authorized = true
-			log.Printf("    Worker authorized (EthProxy): %s (pool addr: %s)", worker, getPoolEtherbase())
+			log.Printf("    Worker authorized (EthProxy): %s (miner addr: %s)", worker, address)
 
 		case "eth_getWork":
 			if w := wb.getCurrent(); w.HeaderHash != "" {
@@ -866,6 +1182,10 @@ func startDashboard(addr string) {
 		tm := totalMined
 		totalMinedMu.Unlock()
 
+		blockTotalsMu.RLock()
+		allTimeBlocks := blockTotals.TotalBlocks
+		blockTotalsMu.RUnlock()
+
 		stratumPort := *stratumAddr
 		if parts := strings.Split(*stratumAddr, ":"); len(parts) > 0 {
 			stratumPort = parts[len(parts)-1]
@@ -873,17 +1193,18 @@ func startDashboard(addr string) {
 
 		data := map[string]interface{}{
 			"pool": map[string]interface{}{
-				"hashrate":     getPoolHashrate(),
-				"miners":       atomic.LoadInt64(&totalConnected),
-				"accepted":     atomic.LoadInt64(&totalAccepted),
-				"rejected":     atomic.LoadInt64(&totalRejected),
-				"blocksFound":  blocksFound,
-				"stratumPort":  stratumPort,
-				"fee":          devFeePercent,
-				"sharesPerMin": sharesPerMin(),
-				"roundLuck":    roundLuck(),
-				"totalMined":   tm,
-				"etherbase":    getPoolEtherbase(),
+				"hashrate":      getPoolHashrate(),
+				"miners":        atomic.LoadInt64(&totalConnected),
+				"accepted":      atomic.LoadInt64(&totalAccepted),
+				"rejected":      atomic.LoadInt64(&totalRejected),
+				"blocksFound":   blocksFound,
+				"allTimeBlocks": allTimeBlocks,
+				"stratumPort":   stratumPort,
+				"fee":           devFeePercent,
+				"sharesPerMin":  sharesPerMin(),
+				"roundLuck":     roundLuck(),
+				"totalMined":    tm,
+				"etherbase":     getPoolEtherbase(),
 			},
 			"network": map[string]interface{}{
 				"blockHeight": ns.BlockHeight,
@@ -899,6 +1220,165 @@ func startDashboard(addr string) {
 		json.NewEncoder(w).Encode(data)
 	})
 
+	mux.HandleFunc("/api/chain/info", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		numHex, err := rpcCall("eth_blockNumber", nil)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		peerHex := rpcHexString("net_peerCount", nil)
+		var blockNumberHex string
+		json.Unmarshal(numHex, &blockNumberHex)
+		blockRaw, err := rpcCall("eth_getBlockByNumber", []interface{}{blockNumberHex, false})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		var block explorerBlockRPC
+		json.Unmarshal(blockRaw, &block)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"blockNumber": hexToUint64(blockNumberHex),
+			"peers":       hexToUint64(peerHex),
+			"chainId":     2048,
+			"latestBlock": formatExplorerBlock(&block, false),
+		})
+	})
+
+	mux.HandleFunc("/api/chain/blocks", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		count := 20
+		if raw := r.URL.Query().Get("count"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 50 {
+				count = parsed
+			}
+		}
+		offset := 0
+		if raw := r.URL.Query().Get("offset"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
+
+		numHex := rpcHexString("eth_blockNumber", nil)
+		latest := int(hexToUint64(numHex))
+		out := make([]map[string]interface{}, 0, count)
+		for i := offset; i < offset+count && latest-i >= 0; i++ {
+			blockHex := fmt.Sprintf("0x%x", latest-i)
+			blockRaw, err := rpcCall("eth_getBlockByNumber", []interface{}{blockHex, false})
+			if err != nil {
+				continue
+			}
+			var block explorerBlockRPC
+			if err := json.Unmarshal(blockRaw, &block); err == nil {
+				out = append(out, formatExplorerBlock(&block, false))
+			}
+		}
+		json.NewEncoder(w).Encode(out)
+	})
+
+	mux.HandleFunc("/api/chain/block/hash/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		hash := strings.TrimPrefix(r.URL.Path, "/api/chain/block/hash/")
+		if hash == "" {
+			http.Error(w, `{"error":"Block not found"}`, http.StatusNotFound)
+			return
+		}
+		blockRaw, err := rpcCall("eth_getBlockByHash", []interface{}{hash, true})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		var block explorerBlockRPC
+		if err := json.Unmarshal(blockRaw, &block); err != nil || block.Hash == "" {
+			http.Error(w, `{"error":"Block not found"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(formatExplorerBlock(&block, true))
+	})
+
+	mux.HandleFunc("/api/chain/block/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		id := strings.TrimPrefix(r.URL.Path, "/api/chain/block/")
+		if id == "" {
+			http.Error(w, `{"error":"Block not found"}`, http.StatusNotFound)
+			return
+		}
+		param := id
+		if !strings.HasPrefix(strings.ToLower(id), "0x") {
+			parsed, err := strconv.ParseUint(id, 10, 64)
+			if err != nil {
+				http.Error(w, `{"error":"Block not found"}`, http.StatusNotFound)
+				return
+			}
+			param = fmt.Sprintf("0x%x", parsed)
+		}
+		blockRaw, err := rpcCall("eth_getBlockByNumber", []interface{}{param, true})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		var block explorerBlockRPC
+		if err := json.Unmarshal(blockRaw, &block); err != nil || block.Hash == "" {
+			http.Error(w, `{"error":"Block not found"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(formatExplorerBlock(&block, true))
+	})
+
+	mux.HandleFunc("/api/chain/tx/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		hash := strings.TrimPrefix(r.URL.Path, "/api/chain/tx/")
+		if hash == "" {
+			http.Error(w, `{"error":"Transaction not found"}`, http.StatusNotFound)
+			return
+		}
+		txRaw, err := rpcCall("eth_getTransactionByHash", []interface{}{hash})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		var tx map[string]interface{}
+		if err := json.Unmarshal(txRaw, &tx); err != nil || len(tx) == 0 {
+			http.Error(w, `{"error":"Transaction not found"}`, http.StatusNotFound)
+			return
+		}
+		if receiptRaw, err := rpcCall("eth_getTransactionReceipt", []interface{}{hash}); err == nil {
+			var receipt map[string]interface{}
+			if json.Unmarshal(receiptRaw, &receipt) == nil && len(receipt) > 0 {
+				tx["receipt"] = receipt
+			}
+		}
+		tx["valueEth"] = weiHexToETHII(fmt.Sprint(tx["value"]))
+		json.NewEncoder(w).Encode(tx)
+	})
+
+	mux.HandleFunc("/api/chain/address/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		address := strings.TrimPrefix(r.URL.Path, "/api/chain/address/")
+		if address == "" {
+			http.Error(w, `{"error":"Address not found"}`, http.StatusNotFound)
+			return
+		}
+		balanceHex := rpcHexString("eth_getBalance", []interface{}{address, "latest"})
+		txCountHex := rpcHexString("eth_getTransactionCount", []interface{}{address, "latest"})
+		codeHex := rpcHexString("eth_getCode", []interface{}{address, "latest"})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"address":    address,
+			"balance":    weiHexToETHII(balanceHex),
+			"txCount":    hexToUint64(txCountHex),
+			"isContract": codeHex != "" && codeHex != "0x" && len(codeHex) > 2,
+		})
+	})
+
 	mux.HandleFunc("/api/miners", func(w http.ResponseWriter, r *http.Request) {
 		minersMu.RLock()
 		list := make([]*MinerInfo, 0, len(activeMiners))
@@ -908,33 +1388,66 @@ func startDashboard(addr string) {
 		}
 		minersMu.RUnlock()
 
-		sort.Slice(list, func(i, j int) bool {
-			return list[i].Hashrate > list[j].Hashrate
-		})
-
 		type minerJSON struct {
-			ID          int64   `json:"id"`
-			Worker      string  `json:"worker"`
-			Address     string  `json:"address"`
-			Hashrate    float64 `json:"hashrate"`
-			Accepted    int64   `json:"accepted"`
-			Rejected    int64   `json:"rejected"`
-			ConnectedAt string  `json:"connectedAt"`
-			LastSeen    string  `json:"lastSeen"`
+			ID                int64   `json:"id"`
+			Worker            string  `json:"worker"`
+			Label             string  `json:"label"`
+			Address           string  `json:"address"`
+			Hashrate          float64 `json:"hashrate"`
+			ReportedHashrate  float64 `json:"reportedHashrate"`
+			EstimatedHashrate float64 `json:"estimatedHashrate"`
+			HashrateSource    string  `json:"hashrateSource"`
+			Accepted          int64   `json:"accepted"`
+			Rejected          int64   `json:"rejected"`
+			AllTimeBlocks     int64   `json:"allTimeBlocks"`
+			ConnectedAt       string  `json:"connectedAt"`
+			LastSeen          string  `json:"lastSeen"`
 		}
 		out := make([]minerJSON, len(list))
 		for i, m := range list {
+			workerLabelsMu.RLock()
+			label := workerLabels[m.Worker]
+			workerLabelsMu.RUnlock()
+			reported := m.Hashrate
+			estimated := 0.0
+			effective := reported
+			source := "reported"
+			if reported <= 0 {
+				source = "none"
+				if time.Since(m.LastSeen) < 2*time.Minute {
+					estimated = estimateWorkerHashrate(m.Worker, 5*time.Minute)
+					if estimated > 0 {
+						effective = estimated
+						source = "estimated"
+					}
+				}
+			}
+			blockTotalsMu.RLock()
+			atb := int64(0)
+			if blockTotals.WorkerBlocks != nil {
+				atb = blockTotals.WorkerBlocks[m.Worker]
+			}
+			blockTotalsMu.RUnlock()
 			out[i] = minerJSON{
-				ID:          m.ID,
-				Worker:      m.Worker,
-				Address:     m.Address,
-				Hashrate:    m.Hashrate,
-				Accepted:    m.Accepted,
-				Rejected:    m.Rejected,
-				ConnectedAt: m.ConnectedAt.Format(time.RFC3339),
-				LastSeen:    m.LastSeen.Format(time.RFC3339),
+				ID:                m.ID,
+				Worker:            m.Worker,
+				Label:             label,
+				Address:           m.Address,
+				Hashrate:          effective,
+				ReportedHashrate:  reported,
+				EstimatedHashrate: estimated,
+				HashrateSource:    source,
+				Accepted:          m.Accepted,
+				Rejected:          m.Rejected,
+				AllTimeBlocks:     atb,
+				ConnectedAt:       m.ConnectedAt.Format(time.RFC3339),
+				LastSeen:          m.LastSeen.Format(time.RFC3339),
 			}
 		}
+
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].Hashrate > out[j].Hashrate
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		json.NewEncoder(w).Encode(out)
@@ -1069,12 +1582,12 @@ func startDashboard(addr string) {
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 			return
 		}
-		blocksMu.Lock()
+		blockTotalsMu.RLock()
 		wBlockCounts := map[string]int{}
-		for _, b := range recentBlocks {
-			wBlockCounts[b.Worker]++
+		for worker, cnt := range blockTotals.WorkerBlocks {
+			wBlockCounts[worker] = int(cnt)
 		}
-		blocksMu.Unlock()
+		blockTotalsMu.RUnlock()
 
 		type wRow struct {
 			Worker      string  `json:"worker"`
@@ -1317,6 +1830,16 @@ func main() {
 
 	loadSettings()
 	go fetchEtherbase()
+	go func() {
+		for i := 0; i < 60; i++ {
+			if getPoolEtherbase() != "" {
+				backfillHistoricalBlockTotals()
+				return
+			}
+			time.Sleep(1 * time.Second)
+		}
+		log.Printf("[totals] Skipping historical backfill: etherbase not available yet")
+	}()
 	go pollWork(wb)
 	go pollNetStats()
 	go printStats()

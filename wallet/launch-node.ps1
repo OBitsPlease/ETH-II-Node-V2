@@ -4,6 +4,7 @@
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir   = Split-Path -Parent $ScriptDir
+$BackupStatusFile = Join-Path $RootDir "BACKUPS\LATEST-BACKUPS.txt"
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  ETHII Miner Suite - ETH 2.0 Proof of Work" -ForegroundColor Cyan
@@ -79,8 +80,127 @@ foreach ($fixedPort in @(3335, 8082)) {
 }
 Start-Sleep -Seconds 1
 
+function New-LocalPreLaunchBackup {
+  param(
+    [string]$BaseDir,
+    [int]$KeepCount = 7
+  )
+
+  $backupRoot = Join-Path $BaseDir "BACKUPS\AUTO-LAUNCH"
+  if (-not (Test-Path $backupRoot)) {
+    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+  }
+
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $backupDir = Join-Path $backupRoot ("PRE-LAUNCH-" + $stamp)
+  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+
+  $relativeFiles = @(
+    "ethii.exe",
+    "stratum.exe",
+    "wallet\launch-node.ps1",
+    "wallet\genesis.json",
+    "wallet\etherbase.txt",
+    "wallet\rpc-port.txt",
+    "data\geth\config.toml",
+    "data\geth\nodekey",
+    "data\geth\jwtsecret",
+    "node.log",
+    "node.out.log"
+  )
+
+  foreach ($rel in $relativeFiles) {
+    $src = Join-Path $BaseDir $rel
+    if (Test-Path $src) {
+      $dst = Join-Path $backupDir $rel
+      $dstParent = Split-Path $dst -Parent
+      if (-not (Test-Path $dstParent)) {
+        New-Item -ItemType Directory -Path $dstParent -Force | Out-Null
+      }
+      Copy-Item -Path $src -Destination $dst -Force
+    }
+  }
+
+  $relativeDirs = @(
+    "data\geth\chaindata",
+    "data\geth\triedb",
+    "data\geth\blobpool",
+    "data\geth\nodes"
+  )
+
+  foreach ($relDir in $relativeDirs) {
+    $srcDir = Join-Path $BaseDir $relDir
+    if (Test-Path $srcDir) {
+      $dstDir = Join-Path $backupDir $relDir
+      $dstParent = Split-Path $dstDir -Parent
+      if (-not (Test-Path $dstParent)) {
+        New-Item -ItemType Directory -Path $dstParent -Force | Out-Null
+      }
+      Copy-Item -Path $srcDir -Destination $dstDir -Recurse -Force
+    }
+  }
+
+  $infoFile = Join-Path $backupDir "BACKUP-INFO.txt"
+  @(
+    "created=" + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    "type=automatic pre-launch backup"
+    "source=" + $BaseDir
+  ) | Set-Content -Path $infoFile -Encoding ASCII
+
+  $existing = Get-ChildItem -Path $backupRoot -Directory |
+    Where-Object { $_.Name -like "PRE-LAUNCH-*" } |
+    Sort-Object LastWriteTime -Descending
+  if ($existing.Count -gt $KeepCount) {
+    $existing | Select-Object -Skip $KeepCount | ForEach-Object {
+      Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  return $backupDir
+}
+
+function Update-BackupStatusFile {
+  param(
+    [string]$StatusPath,
+    [string]$LocalPath
+  )
+
+  $existing = @{}
+  if (Test-Path $StatusPath) {
+    Get-Content $StatusPath | ForEach-Object {
+      if ($_ -match "^([^=]+)=(.*)$") {
+        $existing[$matches[1]] = $matches[2]
+      }
+    }
+  }
+
+  $existing["updated"] = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+  $existing["local_backup"] = $LocalPath
+  if (-not $existing.ContainsKey("vps_backup")) {
+    $existing["vps_backup"] = ""
+  }
+
+  @(
+    "updated=" + $existing["updated"]
+    "local_backup=" + $existing["local_backup"]
+    "vps_backup=" + $existing["vps_backup"]
+  ) | Set-Content -Path $StatusPath -Encoding ASCII
+}
+
+Write-Host "Creating automatic pre-launch backup..." -ForegroundColor Yellow
+try {
+  $autoBackupPath = New-LocalPreLaunchBackup -BaseDir $RootDir -KeepCount 7
+  Update-BackupStatusFile -StatusPath $BackupStatusFile -LocalPath $autoBackupPath
+  Write-Host "  Backup created: $autoBackupPath" -ForegroundColor Green
+} catch {
+  Write-Host "ERROR: Automatic pre-launch backup failed: $_" -ForegroundColor Red
+  Write-Host "Refusing to start without a rollback point." -ForegroundColor Red
+  Read-Host "Press Enter to exit"
+  exit 1
+}
+
 # ── Ports ─────────────────────────────────────────────────────────────────────
-# Stratum and dashboard are fixed — external miners depend on these.
+# Stratum and dashboard are fixed - external miners depend on these.
 # RPC and P2P scan for the first free port so we don't collide with other nodes.
 function Find-FreePort([int[]]$candidates) {
     foreach ($p in $candidates) {
@@ -94,10 +214,39 @@ $RpcPort       = Find-FreePort @(8545..8555)
 $P2pPort       = Find-FreePort @(30303..30313)
 $StratumPort   = 3335   # Fixed - external miners (ASICs, GPUs) depend on this
 $DashboardPort = 8082   # Fixed - bookmarked URL stays consistent
+$BootnodeEnode = "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
+$PublicRpcUrl = "http://91.99.231.217:8545"
+
+# Ensure inbound P2P is open on the selected port so this node can accept peers.
+$fwP2pTcpName = "ETHII P2P TCP $P2pPort"
+$fwP2pUdpName = "ETHII P2P UDP $P2pPort"
+if ($isAdmin) {
+  if (-not (Get-NetFirewallRule -DisplayName $fwP2pTcpName -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName $fwP2pTcpName -Direction Inbound -Protocol TCP -LocalPort $P2pPort -Action Allow -Profile Any | Out-Null
+  }
+  if (-not (Get-NetFirewallRule -DisplayName $fwP2pUdpName -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName $fwP2pUdpName -Direction Inbound -Protocol UDP -LocalPort $P2pPort -Action Allow -Profile Any | Out-Null
+  }
+} else {
+  Write-Host "  Firewall: P2P inbound on $P2pPort requires elevation (TCP+UDP)." -ForegroundColor Yellow
+}
 
 # Write the chosen RPC port to a file so the wallet always knows which port to use
 $RpcPortFile = Join-Path $ScriptDir "rpc-port.txt"
 Set-Content -Path $RpcPortFile -Value "$RpcPort" -NoNewline
+
+# Force a direct persistent peer connection to the VPS node.
+# Newer geth versions ignore static-nodes.json, so write config.toml instead.
+$gethDir = Join-Path $DataDir "geth"
+if (-not (Test-Path $gethDir)) { New-Item -ItemType Directory -Path $gethDir | Out-Null }
+$configTomlPath = Join-Path $gethDir "config.toml"
+$configToml = @"
+[Node.P2P]
+StaticNodes = [
+  "$BootnodeEnode"
+]
+"@
+Set-Content -Path $configTomlPath -Value $configToml -Encoding ASCII
 
 Write-Host "Scanning for available ports..." -ForegroundColor Yellow
 Write-Host "  RPC Port      : $RpcPort"        -ForegroundColor Green
@@ -296,23 +445,26 @@ Start-Process notepad $InfoFile
 Write-Host ""
 Write-Host "Starting ETHII node..." -ForegroundColor Cyan
 $NodeLog = Join-Path $RootDir "node.log"
+$NodeOutLog = Join-Path $RootDir "node.out.log"
 $nodeProc = Start-Process -FilePath $EthiiExe -ArgumentList (
     "--datadir `"$DataDir`"",
+  "--config `"$configTomlPath`"",
     "--networkid 2048",
+    "--syncmode full",
     "--gcmode archive",
     "--state.scheme hash",
     "--http",
     "--http.addr 0.0.0.0",
     "--http.port $RpcPort",
-    "--http.api eth,net,web3,miner,ethash,txpool",
+    "--http.api eth,net,web3,miner,ethash,txpool,admin,debug",
     "--http.corsdomain *",
     "--http.vhosts *",
     "--port $P2pPort",
     "--miner.etherbase $Etherbase",
     "--miner.pending.feeRecipient $Etherbase",
-    "--bootnodes enode://f2da6122badffe3b38cdb81203c43d7de0f165921b6ebad1c2f0e8427cab116588ee43c2d89c5742e81393d97842de7f5e28a7b958b0402ad42d13edc7f918d9@91.99.231.217:30303",
+    "--bootnodes $BootnodeEnode",
     "--verbosity 3"
-) -WindowStyle Normal -RedirectStandardError $NodeLog -PassThru
+  ) -WindowStyle Normal -RedirectStandardOutput $NodeOutLog -RedirectStandardError $NodeLog -PassThru
 Write-Host "  Node PID: $($nodeProc.Id)" -ForegroundColor Green
 
 # ── Wait for node RPC to be ready (up to 30 seconds) ─────────────────────────
@@ -338,16 +490,107 @@ if (-not $ready) {
 }
 Write-Host "  Node is ready!" -ForegroundColor Green
 
+# Force-add the VPS peer over RPC on startup. This makes peering reliable even
+# when discovery is slow or static peer config is not yet effective.
+try {
+  Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
+    -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $BootnodeEnode + '"],"id":1}') `
+    -ContentType "application/json" -TimeoutSec 3 | Out-Null
+  Write-Host "  Requested connection to VPS peer." -ForegroundColor Green
+} catch {
+  Write-Host "  WARNING: Could not request VPS peer connection: $_" -ForegroundColor Yellow
+}
+
+# Kick off sync explicitly to the current VPS head hash (ETHII sync override service).
+try {
+  $vpsHead = Invoke-RestMethod -Uri $PublicRpcUrl -Method POST `
+    -Body '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' `
+    -ContentType "application/json" -TimeoutSec 5
+  $targetHash = $vpsHead.result.hash
+  if ($targetHash) {
+    Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
+      -Body ('{"jsonrpc":"2.0","method":"debug_sync","params":["' + $targetHash + '"],"id":1}') `
+      -ContentType "application/json" -TimeoutSec 5 | Out-Null
+    Write-Host "  Requested full sync to VPS head: $targetHash" -ForegroundColor Green
+  }
+} catch {
+  Write-Host "  WARNING: Could not trigger debug_sync: $_" -ForegroundColor Yellow
+}
+
+# Keep nudging sync in the background for a short period. Some ETHII builds
+# only advance to the last explicitly requested target hash when using the
+# sync override service.
+$syncNudgeJob = Start-Job -ArgumentList $RpcPort,$PublicRpcUrl,$BootnodeEnode,$nodeProc.Id -ScriptBlock {
+  param($LocalRpcPort, $RemoteRpcUrl, $Bootnode, $NodePid)
+  while ($true) {
+    if (-not (Get-Process -Id $NodePid -ErrorAction SilentlyContinue)) {
+      break
+    }
+    try {
+      $peerCount = 0
+      $localNumHex = (Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
+        -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' `
+        -ContentType "application/json" -TimeoutSec 3).result
+      $peerHex = (Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
+        -Body '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' `
+        -ContentType "application/json" -TimeoutSec 3).result
+      if ($peerHex) {
+        $peerCount = [Convert]::ToInt32($peerHex, 16)
+      }
+      $remoteLatest = Invoke-RestMethod -Uri $RemoteRpcUrl -Method POST `
+        -Body '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' `
+        -ContentType "application/json" -TimeoutSec 5
+      $remoteNumHex = $remoteLatest.result.number
+      $remoteHash = $remoteLatest.result.hash
+      if ($localNumHex -and $remoteNumHex -and $remoteHash) {
+        $localNum = [Convert]::ToInt64($localNumHex, 16)
+        $remoteNum = [Convert]::ToInt64($remoteNumHex, 16)
+        if ($peerCount -eq 0 -and $Bootnode) {
+          Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
+            -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $Bootnode + '"],"id":1}') `
+            -ContentType "application/json" -TimeoutSec 3 | Out-Null
+        }
+        if ($localNum -lt $remoteNum) {
+          Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
+            -Body ('{"jsonrpc":"2.0","method":"debug_sync","params":["' + $remoteHash + '"],"id":1}') `
+            -ContentType "application/json" -TimeoutSec 5 | Out-Null
+        }
+      }
+    } catch { }
+    Start-Sleep -Seconds 15
+  }
+}
+
+# Wait briefly for at least one peer before enabling mining work.
+# This avoids mining on an isolated local fork after startup.
+$peerReady = $false
+for ($j = 0; $j -lt 20; $j++) {
+  Start-Sleep -Seconds 1
+  try {
+    $peerResp = Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
+      -Body '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' `
+      -ContentType "application/json" -TimeoutSec 2 -ErrorAction Stop
+    $peerHex = $peerResp.result
+    $peerCount = [Convert]::ToInt32($peerHex, 16)
+    if ($peerCount -gt 0) { $peerReady = $true; break }
+  } catch { }
+}
+
 # Start the PoW miner via RPC (--mine flag is deprecated in this geth version)
 # Pass 0 threads to enable work generation (remote sealer) without CPU mining,
 # since all block production comes from GPU/ASIC via the stratum proxy.
-try {
+if ($peerReady) {
+  try {
     Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
-        -Body '{"jsonrpc":"2.0","method":"miner_start","params":[0],"id":1}' `
-        -ContentType "application/json" | Out-Null
+      -Body '{"jsonrpc":"2.0","method":"miner_start","params":[0],"id":1}' `
+      -ContentType "application/json" | Out-Null
     Write-Host "  PoW miner started!" -ForegroundColor Green
-} catch {
+  } catch {
     Write-Host "  WARNING: Could not auto-start miner via RPC: $_" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "  WARNING: 0 peers detected. Skipping auto-miner start to avoid isolated-chain mining." -ForegroundColor Yellow
+  Write-Host "           Once peers connect, start mining from the Wallet Mining tab." -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -363,12 +606,12 @@ Write-Host "Launching ETHII Wallet..." -ForegroundColor Yellow
 # Use ProcessStartInfo to explicitly remove ELECTRON_RUN_AS_NODE.
 # VS Code (and other Electron apps) set this in their process environment, and
 # it propagates to child processes. If set, electron.exe treats itself as a
-# plain Node.js process — app.* APIs are undefined and the wallet crashes.
+# plain Node.js process - app.* APIs are undefined and the wallet crashes.
 $walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronExe, "`"$ScriptDir`"")
 $walletStartInfo.UseShellExecute = $false
 $walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
 [System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
-Write-Host "  Wallet launched. Node is ready — Start Mining will work immediately." -ForegroundColor Green
+Write-Host "  Wallet launched. Use Mining tab once peers are connected." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
@@ -380,6 +623,11 @@ Write-Host ""
 
 # Keep window open and wait for the node to exit
 try { $nodeProc.WaitForExit() } catch { }
+
+if ($syncNudgeJob) {
+  Stop-Job -Job $syncNudgeJob -ErrorAction SilentlyContinue
+  Remove-Job -Job $syncNudgeJob -ErrorAction SilentlyContinue
+}
 
 Write-Host ""
 Write-Host "Node stopped." -ForegroundColor Yellow
