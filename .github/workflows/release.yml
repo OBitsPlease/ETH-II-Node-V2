@@ -26,11 +26,7 @@ jobs:
 
       - name: Clone and build ethii node
         run: |
-          if ("${{ secrets.NODE_REPO_TOKEN }}" -eq "") {
-            Write-Error "Missing secret NODE_REPO_TOKEN. Add a PAT with read access to OBitsPlease/ethii-node."
-            exit 1
-          }
-          git clone https://x-access-token:${{ secrets.NODE_REPO_TOKEN }}@github.com/OBitsPlease/ethii-node.git ethii-src
+          git clone https://github.com/OBitsPlease/ethii-node.git ethii-src
           cd ethii-src
           go build -o ../ethii.exe ./cmd/geth
 
