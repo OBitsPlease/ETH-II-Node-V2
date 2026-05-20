@@ -1,22 +1,19 @@
 // ETHII Wallet — renderer app logic
 
-// Public RPC endpoint — update this when VPS is deployed
-// Leave empty to show localhost only
-const PUBLIC_RPC_URL = 'http://91.99.231.217:8545';
+const PUBLIC_RPC_URL = 'https://ethii.net/rpc';
 
 let currentAddress = null;
 let currentPrivateKey = null;
 
-// Update MetaMask RPC chip: show public RPC if available, otherwise localhost
+// Update MetaMask RPC chip: show public RPC endpoint.
 (function initMetaMaskRpc() {
   const el = document.getElementById('metamask-rpc-url');
   const note = document.getElementById('metamask-rpc-note');
   if (!el) return;
   if (PUBLIC_RPC_URL) {
     el.textContent = PUBLIC_RPC_URL;
-    if (note) note.innerHTML = '<strong>Public RPC:</strong> Use the URL above to connect MetaMask from any device. You do not need to run a local node.';
+    if (note) note.innerHTML = '<strong>Recommended:</strong> Use the URL above to connect MetaMask from any device. <strong>Local node (optional):</strong> use <code>http://localhost:8545</code> only on the same machine.';
   }
-  // If empty, localhost default stays with the "coming soon" note
 })();
 
 // Populate version badge from main process
@@ -170,7 +167,7 @@ function openDashboard() {
   document.getElementById('receive-address-input').value = currentAddress;
   // Update node command with real address
   document.querySelector('.code-block').textContent =
-    `ethii.exe --datadir ".\\data" --networkid 2048 --http --http.addr 127.0.0.1 --http.port 8545 --http.api "eth,net,web3,miner,ethash,txpool,admin,debug" --http.corsdomain "*" --http.vhosts "*" --miner.pending.feeRecipient ${currentAddress}`;
+    `ethii.exe --datadir ".\\data" --config ".\\data\\geth\\config.toml" --networkid 2048 --syncmode full --gcmode archive --state.scheme hash --bootnodes "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303" --http --http.addr 127.0.0.1 --http.port 8545 --http.api "eth,net,web3,miner,ethash,txpool,admin,debug" --http.corsdomain "*" --http.vhosts "*" --miner.pending.feeRecipient ${currentAddress}`;
   showScreen('screen-dashboard');
   showView('view-wallet');
   refreshBalance({ showSpinner: true });
@@ -256,7 +253,7 @@ async function refreshNodeStatus() {
   console.log('[UI] getNodeStatus result:', result);
   if (result.success) {
     const source = result.source || 'local';
-    const localBlock = Number.isFinite(result.localBlockNumber) ? result.localBlockNumber : result.blockNumber;
+    const localBlock = Number.isFinite(result.localBlockNumber) ? result.localBlockNumber : null;
     const networkBlock = Number.isFinite(result.networkBlockNumber) ? result.networkBlockNumber : null;
     const peers = Number.isFinite(result.peers) ? result.peers : 0;
     const networkPeers = Number.isFinite(result.networkPeers) ? result.networkPeers : null;
@@ -264,18 +261,26 @@ async function refreshNodeStatus() {
 
     if (source === 'vps') {
       indicator.className = 'node-indicator online';
-      statusText.textContent = `Connected - VPS #${networkBlock !== null ? networkBlock : '—'}`;
+      statusText.textContent = lag !== null
+        ? `Using VPS - Network #${networkBlock !== null ? networkBlock : '—'} (local behind ${lag})`
+        : `Using VPS - Network #${networkBlock !== null ? networkBlock : '—'}`;
 
-      document.getElementById('node-block').textContent = networkBlock !== null ? networkBlock : '—';
+      document.getElementById('node-block').textContent = localBlock !== null ? localBlock : '—';
       document.getElementById('node-network-block').textContent = networkBlock !== null ? networkBlock : '—';
       document.getElementById('node-network-peers').textContent = networkPeers !== null ? networkPeers : '—';
-      document.getElementById('node-sync-lag').textContent = '0';
-      document.getElementById('node-peers').textContent = '—';
+      document.getElementById('node-sync-lag').textContent = lag !== null ? lag : '—';
+      document.getElementById('node-peers').textContent = peers;
+
+      if (lag !== null && lag >= 2 && networkBlock !== null && localBlock !== null && localBlock < networkBlock) {
+        window.ethii.autoSyncNudge({ lag, reason: 'wallet-vps-failover' }).catch(() => {});
+      }
 
       if (syncFill && syncLabel) {
         syncFill.classList.remove('indeterminate');
         syncFill.style.width = '100%';
-        syncLabel.textContent = 'Wallet-only mode: using VPS RPC.';
+        syncLabel.textContent = lag !== null
+          ? `Failover active: wallet is using VPS while local catches up (${lag} behind).`
+          : 'Failover active: wallet is using VPS RPC.';
       }
       return;
     }
@@ -308,7 +313,9 @@ async function refreshNodeStatus() {
           syncFill.style.width = `${pct.toFixed(1)}%`;
           syncLabel.textContent = lag === 0
             ? 'Fully synced with network.'
-            : `Syncing: ${localBlock} / ${networkBlock} (${pct.toFixed(1)}%)`;
+            : lag >= 3
+              ? `⚠ Node is ${lag} blocks behind network. (${localBlock} / ${networkBlock})`
+              : `Syncing: ${localBlock} / ${networkBlock} (${pct.toFixed(1)}%)`;
         }
       } else {
         syncFill.classList.add('indeterminate');
@@ -318,16 +325,6 @@ async function refreshNodeStatus() {
     }
 
     console.log('[UI] Node status local/network/peers/lag:', localBlock, networkBlock, peers, lag);
-    // Auto-mine: if enabled and not already mining, start
-    const autoMine = document.getElementById('auto-mine-toggle');
-    if (autoMine && autoMine.checked && peers > 0) {
-      const status = await window.ethii.minerStatus();
-      if (status.success && !status.mining) {
-        const threads = parseInt(document.getElementById('cpu-thread-count').value) || 1;
-        await window.ethii.minerStart(threads);
-        pollMiningStatus();
-      }
-    }
   } else {
     console.log('[UI] Node offline, error:', result.error);
     indicator.className = 'node-indicator offline';
@@ -417,111 +414,4 @@ setInterval(() => {
 
 // ---- Init ----
 initApp();
-
-// ---- Mining ----
-let miningPollInterval = null;
-
-function updateMiningStatus(mining, hashrate) {
-  const indicator = document.getElementById('mining-indicator');
-  const statusText = document.getElementById('mining-status-text');
-  const statusChip = document.getElementById('mining-status-chip');
-  const hashrateEl = document.getElementById('mining-hashrate-display');
-  const btnStart = document.getElementById('btn-start-mining');
-  const btnStop = document.getElementById('btn-stop-mining');
-
-  const hr = Number(hashrate) || 0;
-  const isActive = mining || hr > 0;
-
-  if (isActive) {
-    indicator.className = 'node-indicator online';
-    statusText.textContent = 'Mining active';
-    statusChip.textContent = 'Mining';
-    btnStart.classList.add('hidden');
-    btnStop.classList.remove('hidden');
-  } else {
-    indicator.className = 'node-indicator offline';
-    statusText.textContent = 'Not mining';
-    statusChip.textContent = 'Stopped';
-    btnStart.classList.remove('hidden');
-    btnStop.classList.add('hidden');
-  }
-
-  hashrateEl.textContent = hr > 1e6
-    ? (hr / 1e6).toFixed(2) + ' MH/s'
-    : hr > 1e3
-      ? (hr / 1e3).toFixed(2) + ' KH/s'
-      : hr.toFixed(0) + ' H/s';
-}
-
-async function pollMiningStatus() {
-  const result = await window.ethii.minerStatus();
-  if (result.success) {
-    updateMiningStatus(result.mining, result.hashrate);
-  }
-}
-
-// CPU toggle shows/hides thread settings
-document.getElementById('cpu-mine-toggle').addEventListener('change', function () {
-  const settings = document.getElementById('cpu-mine-settings');
-  if (this.checked) {
-    settings.classList.remove('hidden');
-  } else {
-    settings.classList.add('hidden');
-  }
-});
-
-// Sync thread slider ↔ number input
-document.getElementById('cpu-thread-slider').addEventListener('input', function () {
-  document.getElementById('cpu-thread-count').value = this.value;
-});
-document.getElementById('cpu-thread-count').addEventListener('input', function () {
-  const val = Math.max(1, Math.min(parseInt(this.value) || 1, 64));
-  this.value = val;
-  document.getElementById('cpu-thread-slider').value = val;
-});
-
-// Start mining button
-document.getElementById('btn-start-mining').addEventListener('click', async () => {
-  const cpuEnabled = document.getElementById('cpu-mine-toggle').checked;
-  if (!cpuEnabled) {
-    showToast('Enable CPU mining first.');
-    return;
-  }
-  const threads = parseInt(document.getElementById('cpu-thread-count').value) || 1;
-  const result = await window.ethii.minerStart(threads);
-  if (result.success) {
-    showToast('Mining started!');
-    pollMiningStatus();
-  } else {
-    showToast('Failed to start mining: ' + (result.error || 'unknown error'));
-  }
-});
-
-// Stop mining button
-document.getElementById('btn-stop-mining').addEventListener('click', async () => {
-  const result = await window.ethii.minerStop();
-  if (result.success) {
-    showToast('Mining stopped.');
-    pollMiningStatus();
-  } else {
-    showToast('Failed to stop mining: ' + (result.error || 'unknown error'));
-  }
-});
-
-// Auto-mine toggle persistence
-const autoMineToggle = document.getElementById('auto-mine-toggle');
-if (autoMineToggle) {
-  autoMineToggle.checked = localStorage.getItem('autoMine') === 'true';
-  autoMineToggle.addEventListener('change', function () {
-    localStorage.setItem('autoMine', this.checked);
-  });
-}
-
-// Poll mining status every 5s when on dashboard
-setInterval(() => {
-  const dashboard = document.getElementById('screen-dashboard');
-  if (dashboard && dashboard.classList.contains('active') && currentAddress) {
-    pollMiningStatus();
-  }
-}, 5000);
 

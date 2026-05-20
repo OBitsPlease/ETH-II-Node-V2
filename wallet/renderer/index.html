@@ -149,9 +149,6 @@
         <a class="nav-item" data-view="view-node">
           <span class="nav-icon">⬡</span> Node
         </a>
-        <a class="nav-item" data-view="view-mining">
-          <span class="nav-icon">⛏</span> Mining
-        </a>
       </nav>
       <div class="sidebar-footer">
         <button class="btn-lock" id="btn-lock">🔒 Lock</button>
@@ -230,13 +227,13 @@
           <div class="section-title">Add to MetaMask / External Wallet</div>
           <div class="info-grid">
             <div class="info-chip">Network Name <span class="chip-val">ETHII</span></div>
-            <div class="info-chip">RPC URL <span class="chip-val mono" id="metamask-rpc-url">http://localhost:8545</span></div>
+            <div class="info-chip">RPC URL <span class="chip-val mono" id="metamask-rpc-url">https://ethii.net/rpc</span></div>
             <div class="info-chip">Chain ID <span class="chip-val">2048</span></div>
             <div class="info-chip">Symbol <span class="chip-val">ETHII</span></div>
           </div>
           <p class="hint" id="metamask-rpc-note">
-            <strong>Running your own node?</strong> Use <code>http://localhost:8545</code> above.<br>
-            <strong>Public RPC (coming soon):</strong> A public RPC endpoint will be available once the network launches — use that if you are not running a local node, as <code>localhost</code> only works on this machine.
+            <strong>Recommended:</strong> Use the public endpoint above for MetaMask and external wallets.<br>
+            <strong>Local node (optional):</strong> Use <code>http://localhost:8545</code> only if MetaMask is running on the same machine as your node.
           </p>
         </div>
       </div>
@@ -265,64 +262,6 @@
         <div class="section-title">Start Node Command</div>
         <div class="code-block">ethii.exe --datadir ".\data" --networkid 2048 --http --http.port 8545 --miner.etherbase YOUR_ADDRESS</div>
         <button class="btn btn-outline" id="btn-refresh-node">⟳ Refresh Status</button>
-      </div>
-
-      <!-- Mining view -->
-      <div id="view-mining" class="dash-view">
-        <h2 class="view-title">Mining Control</h2>
-
-        <!-- Status banner -->
-        <div class="node-card">
-          <div class="node-indicator" id="mining-indicator"></div>
-          <div id="mining-status-text">Mining stopped</div>
-        </div>
-        <div class="info-grid">
-          <div class="info-chip">Hashrate <span class="chip-val" id="mining-hashrate-display">0 H/s</span></div>
-          <div class="info-chip">Status <span class="chip-val" id="mining-status-chip">Stopped</span></div>
-        </div>
-
-        <!-- CPU Mining -->
-        <div class="section-title">CPU Mining</div>
-        <div class="mining-card">
-          <label class="toggle-row">
-            <input type="checkbox" id="cpu-mine-toggle" class="mining-toggle">
-            <span class="toggle-label">Enable CPU Mining</span>
-          </label>
-          <div id="cpu-mine-settings" class="mining-settings hidden">
-            <div class="form-group" style="margin-bottom:0">
-              <label>Threads&nbsp;<span class="hint-label">(0 = all CPUs)</span></label>
-              <div class="thread-row">
-                <input type="range"  id="cpu-thread-slider" min="0" max="16" value="1" class="thread-slider">
-                <input type="number" id="cpu-thread-count"  min="0" max="128" value="1" class="thread-number">
-                <span class="thread-unit">threads</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- GPU Mining -->
-        <div class="section-title">GPU Mining</div>
-        <div class="mining-card">
-          <div class="mining-gpu-label">⚡ GPU / External Miner</div>
-          <p class="mining-hint">Connect an external miner (e.g. <strong>ethminer</strong>, <strong>T-Rex</strong>) via the stratum port. Start the node with <code>--miner.stratum.port 8546</code>.</p>
-          <div class="code-block" id="stratum-url">stratum+tcp://YOUR_ADDRESS.rig1@localhost:8546</div>
-        </div>
-
-        <!-- Options -->
-        <div class="section-title">Options</div>
-        <div class="mining-card">
-          <label class="toggle-row">
-            <input type="checkbox" id="auto-mine-toggle" class="mining-toggle">
-            <span class="toggle-label">Auto-start CPU mining when node connects</span>
-          </label>
-          <p class="mining-hint" style="margin-top:8px">⚠ Enabling auto-mine will start CPU mining every time the wallet connects to a running node.</p>
-        </div>
-
-        <!-- Controls -->
-        <div class="mining-controls">
-          <button class="btn btn-primary" id="btn-start-mining">⛏ Start Mining</button>
-          <button class="btn btn-outline" id="btn-stop-mining">■ Stop Mining</button>
-        </div>
       </div>
 
     </div>

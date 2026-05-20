@@ -23,9 +23,4 @@ contextBridge.exposeInMainWorld('ethii', {
 
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),
-
-  // Mining operations
-  minerStart:  (threads) => ipcRenderer.invoke('mining-start', { threads }),
-  minerStop:   ()        => ipcRenderer.invoke('mining-stop'),
-  minerStatus: ()        => ipcRenderer.invoke('mining-status'),
 });

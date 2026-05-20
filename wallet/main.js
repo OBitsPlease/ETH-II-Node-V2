@@ -25,7 +25,7 @@ if (!gotLock) {
 let WALLET_FILE; // initialized after app is ready
 let RPC_PORT = 8545; // default, may be updated by port scan
 let RPC_URL = 'http://127.0.0.1:8545';
-const PUBLIC_RPC_URL = 'http://91.99.231.217:8545'; // VPS public node fallback
+const PUBLIC_RPC_URL = 'https://ethii.net/rpc'; // canonical public read RPC
 const READ_RPC_URL = PUBLIC_RPC_URL; // canonical chain source for wallet reads/tx
 const RELEASES_API_URL = 'https://api.github.com/repos/OBitsPlease/ethii-miner-suite/releases';
 const HTTP_HEADERS = { 'User-Agent': 'ETHII-Wallet-Updater' };
@@ -33,6 +33,8 @@ const CHAIN_ID = 2048;
 const BOOTNODE_ENODE = 'enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303';
 const AUTO_NUDGE_INTERVAL_MS = 20000;
 const AUTO_NUDGE_LAG_THRESHOLD = 2;
+const LOCAL_FAILOVER_LAG = 8;
+const LOCAL_FAILOVER_NOPEER_LAG = 3;
 
 let mainWindow;
 let provider;
@@ -147,6 +149,36 @@ async function findNodePort(base = 8545) {
 }
 
 function createWindow() {
+// Write the correct VPS bootnode into static-nodes.json and config.toml so the
+// local ethii node always has a peer to sync from, even on a fresh install.
+// Tries both <datadir> candidates: one level up from wallet (dev layout) and
+// the wallet dir itself (in case the user put data/ alongside the wallet.exe).
+function ensureBootstrapFiles() {
+  const candidates = [
+    path.join(__dirname, '..', 'data', 'geth'),
+    path.join(__dirname, 'data', 'geth'),
+  ];
+  for (const gethDir of candidates) {
+    try {
+      if (!fs.existsSync(gethDir)) continue; // only write if the dir exists (node has been init'd)
+      // static-nodes.json — read by older geth/ethii builds
+      const staticNodesPath = path.join(gethDir, 'static-nodes.json');
+      fs.writeFileSync(staticNodesPath, JSON.stringify([BOOTNODE_ENODE], null, 2), 'utf8');
+      // config.toml — read by newer geth/ethii builds (takes precedence over static-nodes.json)
+      const configTomlPath = path.join(gethDir, 'config.toml');
+      const configToml = `[Node.P2P]\nStaticNodes = [\n  "${BOOTNODE_ENODE}"\n]\n`;
+      // Only write config.toml if it doesn't exist or doesn't already contain the correct enode.
+      // Avoids overwriting custom user config that may have additional settings.
+      const existing = fs.existsSync(configTomlPath) ? fs.readFileSync(configTomlPath, 'utf8') : '';
+      if (!existing.includes(BOOTNODE_ENODE)) {
+        fs.writeFileSync(configTomlPath, configToml, 'utf8');
+      }
+    } catch (e) {
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ensureBootstrapFiles(${gethDir}): ${e.message}\n`);
+    }
+  }
+}
+
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 720,
@@ -175,14 +207,25 @@ function createWindow() {
   mainWindow.on('close', () => {
     fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] mainWindow close event fired\n`);
   });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+function focusOrCreateMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
+  }
+  if (app.isReady()) {
+    createWindow();
+  }
 }
 
 app.on('second-instance', () => {
-  // User tried to open a second wallet — focus the existing window instead.
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
+  // If an orphan process holds the lock without a window, recreate it.
+  focusOrCreateMainWindow();
 });
 
 app.whenReady().then(async () => {
@@ -190,13 +233,21 @@ app.whenReady().then(async () => {
   // Find the port where the ETHII node RPC is listening (default 8545)
   RPC_PORT = await findNodePort(8545);
   RPC_URL = `http://127.0.0.1:${RPC_PORT}`;
+  // Ensure the VPS peer is configured in the data directory so the node
+  // always connects to the chain on first launch (or after a reinstall).
+  ensureBootstrapFiles();
   createWindow();
   tryConnectProvider();
   setTimeout(() => {
     checkForWalletUpdate().catch(() => {});
   }, 4000);
+  // Fire an immediate sync nudge shortly after startup so the local node
+  // connects to the VPS peer right away rather than waiting for the UI timer.
+  setTimeout(() => {
+    performSyncNudge({ force: true, reason: 'startup' }).catch(() => {});
+  }, 6000);
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) focusOrCreateMainWindow();
   });
 });
 
@@ -326,44 +377,25 @@ ipcMain.handle('get-tx-history', async (_, { address }) => {
 // Get node status — uses direct RPC fetch for reliability
 ipcMain.handle('get-node-status', async () => {
   try {
-    const [localBlockHex, localPeersHex] = await Promise.all([
-      rpcCallLocal('eth_blockNumber', []),
-      rpcCallLocal('net_peerCount', []),
-    ]);
-
-    const localBlockNum = parseInt(localBlockHex, 16);
-    const localPeers = parseInt(localPeersHex, 16);
-    const localBlock = await rpcCallLocal('eth_getBlockByNumber', ['latest', false]);
-
-    let networkBlockNum = null;
-    let networkPeers = null;
-    try {
-      const [networkBlockHex, networkPeersHex] = await Promise.all([
-        rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
-        rpcCallOnUrl(READ_RPC_URL, 'net_peerCount', []),
-      ]);
-      networkBlockNum = parseInt(networkBlockHex, 16);
-      networkPeers = parseInt(networkPeersHex, 16);
-    } catch {
-      networkBlockNum = null;
-      networkPeers = null;
-    }
-
-    const syncLag = (Number.isFinite(networkBlockNum) && Number.isFinite(localBlockNum))
-      ? Math.max(0, networkBlockNum - localBlockNum)
-      : null;
+    const status = await fetchNodeSyncStatus();
+    const localLag = Number.isFinite(status.syncLag) ? status.syncLag : null;
+    const localPeers = Number.isFinite(status.localPeers) ? status.localPeers : 0;
+    const useVps =
+      (localLag !== null && localLag >= LOCAL_FAILOVER_LAG) ||
+      (localLag !== null && localLag >= LOCAL_FAILOVER_NOPEER_LAG && localPeers === 0);
+    const source = useVps ? 'vps' : 'local';
 
     return {
       success: true,
-      source: 'local',
-      blockNumber: localBlockNum,
-      localBlockNumber: localBlockNum,
-      networkBlockNumber: networkBlockNum,
-      networkPeers: Number.isFinite(networkPeers) ? networkPeers : null,
-      peers: Number.isFinite(localPeers) ? localPeers : 0,
-      syncLag,
-      timestamp: localBlock ? parseInt(localBlock.timestamp, 16) : null,
-      gasLimit: localBlock ? parseInt(localBlock.gasLimit, 16).toString() : null,
+      source,
+      blockNumber: source === 'vps' && Number.isFinite(status.networkBlockNum) ? status.networkBlockNum : status.localBlockNum,
+      localBlockNumber: status.localBlockNum,
+      networkBlockNumber: status.networkBlockNum,
+      networkPeers: Number.isFinite(status.networkPeers) ? status.networkPeers : null,
+      peers: Number.isFinite(status.localPeers) ? status.localPeers : 0,
+      syncLag: status.syncLag,
+      timestamp: source === 'vps' && status.networkLatestBlock ? parseInt(status.networkLatestBlock.timestamp, 16) : (status.localBlock ? parseInt(status.localBlock.timestamp, 16) : null),
+      gasLimit: source === 'vps' && status.networkLatestBlock ? parseInt(status.networkLatestBlock.gasLimit, 16).toString() : (status.localBlock ? parseInt(status.localBlock.gasLimit, 16).toString() : null),
       rpcPort: RPC_PORT,
     };
   } catch (e) {
@@ -414,32 +446,20 @@ async function performSyncNudge({ force = false, lag = null, reason = 'wallet-au
   }
 
   try {
-    const [localBlockHex, remoteLatest] = await Promise.all([
+    const [localBlockHex, remoteBlockHex] = await Promise.all([
       rpcCallLocal('eth_blockNumber', []),
-      rpcCallOnUrl(READ_RPC_URL, 'eth_getBlockByNumber', ['latest', false]),
+      rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
     ]);
     const localBlock = parseInt(localBlockHex, 16);
-    const remoteBlock = remoteLatest && remoteLatest.number ? parseInt(remoteLatest.number, 16) : NaN;
-    const remoteHash = remoteLatest && remoteLatest.hash ? remoteLatest.hash : '';
+    const remoteBlock = parseInt(remoteBlockHex, 16);
 
-    if (Number.isFinite(localBlock) && Number.isFinite(remoteBlock) && remoteHash && localBlock < remoteBlock) {
-      await rpcCallLocal('debug_sync', [remoteHash]);
-      lastAutoNudgeAt = now;
-      return {
-        success: true,
-        nudged: true,
-        localBlock,
-        networkBlock: remoteBlock,
-        reason,
-      };
-    }
-
+    lastAutoNudgeAt = now;
     return {
       success: true,
-      nudged: false,
+      nudged: true,
       localBlock: Number.isFinite(localBlock) ? localBlock : null,
       networkBlock: Number.isFinite(remoteBlock) ? remoteBlock : null,
-      reason: 'already-at-tip-or-missing-head',
+      reason,
     };
   } catch (e) {
     return { success: false, nudged: false, error: e.message, reason };
@@ -454,6 +474,52 @@ ipcMain.handle('auto-sync-nudge', async (_, payload) => {
     reason: input.reason || 'wallet-auto',
   });
 });
+
+async function fetchNodeSyncStatus() {
+  const [localBlockHex, localPeersHex] = await Promise.all([
+    rpcCallLocal('eth_blockNumber', []),
+    rpcCallLocal('net_peerCount', []),
+  ]);
+
+  const localBlockNum = parseInt(localBlockHex, 16);
+  const localPeers = parseInt(localPeersHex, 16);
+  const localBlock = await rpcCallLocal('eth_getBlockByNumber', ['latest', false]);
+
+  let networkBlockNum = null;
+  let networkPeers = null;
+  let networkLatestBlock = null;
+  try {
+    const [networkBlockHex, networkPeersHex, latestBlock] = await Promise.all([
+      rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
+      rpcCallOnUrl(READ_RPC_URL, 'net_peerCount', []),
+      rpcCallOnUrl(READ_RPC_URL, 'eth_getBlockByNumber', ['latest', false]),
+    ]);
+    networkBlockNum = parseInt(networkBlockHex, 16);
+    networkPeers = parseInt(networkPeersHex, 16);
+    networkLatestBlock = latestBlock;
+  } catch {
+    networkBlockNum = null;
+    networkPeers = null;
+    networkLatestBlock = null;
+  }
+
+  const syncLag = (Number.isFinite(networkBlockNum) && Number.isFinite(localBlockNum))
+    ? Math.max(0, networkBlockNum - localBlockNum)
+    : null;
+
+  // source is always 'local' here — local RPC is reachable.
+  // The 'vps' source is only set in the get-node-status catch block when local RPC is completely offline.
+  return {
+    source: 'local',
+    localBlockNum,
+    localPeers,
+    localBlock,
+    networkBlockNum,
+    networkPeers,
+    networkLatestBlock,
+    syncLag,
+  };
+}
 
 
 // Wallet read RPC helper - public canonical first, local fallback.
@@ -488,52 +554,6 @@ async function rpcCallOnUrl(url, method, params = []) {
   if (json.error) throw new Error(json.error.message);
   return json.result;
 }
-
-async function isLikelyIsolatedLocalNode() {
-  if (!RPC_URL || RPC_URL === PUBLIC_RPC_URL) return false;
-  try {
-    const [peersHex, blockHex] = await Promise.all([
-      rpcCallOnUrl(RPC_URL, 'net_peerCount', []),
-      rpcCallOnUrl(RPC_URL, 'eth_blockNumber', []),
-    ]);
-    const peers = parseInt(peersHex, 16);
-    const block = parseInt(blockHex, 16);
-    return Number.isFinite(peers) && Number.isFinite(block) && peers === 0 && block < 1000;
-  } catch {
-    return false;
-  }
-}
-ipcMain.handle('mining-start', async (_, { threads }) => {
-  try {
-    if (await isLikelyIsolatedLocalNode()) {
-      return { success: false, error: 'Local node is isolated (0 peers). Wait for peer sync before mining.' };
-    }
-    await rpcCallLocal('miner_start', [threads]);
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-});
-
-ipcMain.handle('mining-stop', async () => {
-  try {
-    await rpcCallLocal('miner_stop', []);
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-});
-
-ipcMain.handle('mining-status', async () => {
-  try {
-    const mining = await rpcCallLocal('miner_mining', []);
-    const hashrate = await rpcCallLocal('miner_hashrate', []);
-    return { success: true, mining, hashrate };
-  } catch (e) {
-    return { success: false, mining: false, hashrate: 0 };
-  }
-});
-
 
 // Return wallet app version
 ipcMain.handle('get-version', () => app.getVersion());

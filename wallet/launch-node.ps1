@@ -349,23 +349,16 @@ $info = @"
 
 
 ------------------------------------------------------------
-  STEP 2 -- START THE CPU MINER (built in, easiest option)
+  STEP 2 -- CONNECT A GPU OR ASIC MINER
 ------------------------------------------------------------
 
-  The ETHII Wallet app opened automatically when you launched the
-  Miner Suite.  In the wallet:
-
-    1. Go to the Mining tab
-    2. Use the slider to choose how many CPU threads to use
-       (more threads = more hashrate, but uses more CPU)
-    3. Click  Start Mining
-
-  That's it.  The wallet will show your hashrate and block count.
-  Rewards appear in your balance automatically.
+  CPU mining in the wallet has been removed.
+  Use an external GPU/ASIC miner and point it at the stratum
+  address below.
 
 
 ------------------------------------------------------------
-  STEP 3 -- CONNECT A GPU OR ASIC MINER  (optional)
+  STEP 3 -- GPU/ASIC CONFIG EXAMPLES
 ------------------------------------------------------------
 
   If you want to connect an external GPU rig or ASIC miner,
@@ -418,10 +411,8 @@ $info = @"
 
     http://127.0.0.1:$DashboardPort
 
-  NOTE: The dashboard only counts EXTERNAL miners (GPUs/ASICs
-  connected via stratum).  The built-in CPU miner in the wallet
-  app does not appear here -- that is normal.  Check the wallet's
-  Mining tab for CPU miner stats.
+  NOTE: The dashboard shows EXTERNAL miners (GPUs/ASICs)
+  connected through stratum.
 
 
 ------------------------------------------------------------
@@ -465,10 +456,9 @@ $info = @"
     accident, just run Start-ETHII-Miner.ps1 again.
 
   STRATUM SHOWS "NO PENDING WORK"
-    The node needs the CPU miner started before it produces work
-    for external miners.  Open the wallet, go to Mining tab, and
-    click  Start Mining.  Within a few seconds the stratum will
-    start serving work to all connected miners.
+    Wait until the node has peers and is synced near the VPS height.
+    This launcher auto-enables remote-sealer work generation when
+    sync-safe. If needed, restart the Miner Suite after peers connect.
 
   BALANCE NOT UPDATING IN WALLET
     Block rewards take one confirmation to show up.  If you have
@@ -557,6 +547,24 @@ try {
   Write-Host "  WARNING: Could not trigger debug_sync: $_" -ForegroundColor Yellow
 }
 
+# Launch wallet early so UI is available immediately while sync continues.
+Write-Host "Launching ETHII Wallet..." -ForegroundColor Yellow
+if (Test-Path $ElectronExe) {
+  # Use ProcessStartInfo to explicitly remove ELECTRON_RUN_AS_NODE.
+  # VS Code (and other Electron apps) set this in their process environment, and
+  # it propagates to child processes. If set, electron.exe treats itself as a
+  # plain Node.js process - app.* APIs are undefined and the wallet crashes.
+  $walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronExe, "`"$ScriptDir`"")
+  $walletStartInfo.UseShellExecute = $false
+  $walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
+  [System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
+  Write-Host "  Wallet launched (local runtime)." -ForegroundColor Green
+} elseif (Test-Path $InstalledWalletExe) {
+  Start-Process -FilePath $InstalledWalletExe | Out-Null
+  Write-Host "  Wallet launched (installed app)." -ForegroundColor Green
+}
+Write-Host ""
+
 # Keep nudging sync in the background for a short period. Some ETHII builds
 # only advance to the last explicitly requested target hash when using the
 # sync override service.
@@ -641,7 +649,7 @@ if ($peerReady) {
           $safeToMine = $true
           break
         }
-        Write-Host "  Waiting for sync before miner start: local=$localBlock remote=$remoteBlock lag=$lag" -ForegroundColor Yellow
+        Write-Host "  Waiting for sync before enabling stratum work: local=$localBlock remote=$remoteBlock lag=$lag" -ForegroundColor Yellow
       }
     } catch { }
     Start-Sleep -Seconds 2
@@ -653,13 +661,13 @@ if ($safeToMine) {
     Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
       -Body '{"jsonrpc":"2.0","method":"miner_start","params":[0],"id":1}' `
       -ContentType "application/json" | Out-Null
-    Write-Host "  PoW miner started!" -ForegroundColor Green
+    Write-Host "  Stratum work generation enabled." -ForegroundColor Green
   } catch {
-    Write-Host "  WARNING: Could not auto-start miner via RPC: $_" -ForegroundColor Yellow
+    Write-Host "  WARNING: Could not enable stratum work via RPC: $_" -ForegroundColor Yellow
   }
 } else {
-  Write-Host "  WARNING: Node not sync-safe yet. Skipping auto-miner start to avoid wrong-chain mining." -ForegroundColor Yellow
-  Write-Host "           Wait until local height is near VPS height, then start mining from the Wallet Mining tab." -ForegroundColor Yellow
+  Write-Host "  WARNING: Node not sync-safe yet. Delaying stratum work generation to avoid wrong-chain work." -ForegroundColor Yellow
+  Write-Host "           Wait until local height is near VPS height, then relaunch Miner Suite if needed." -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -669,23 +677,6 @@ $stratumArgs = "--node `"http://127.0.0.1:$RpcPort`" --stratum `"0.0.0.0:$Stratu
 Start-Process -FilePath $StratumExe -ArgumentList $stratumArgs -WindowStyle Normal
 Start-Sleep -Seconds 2
 Write-Host "  Dashboard: http://127.0.0.1:$DashboardPort" -ForegroundColor Cyan
-
-# ── Launch Wallet GUI ─────────────────────────────────────────────────────────
-Write-Host "Launching ETHII Wallet..." -ForegroundColor Yellow
-if (Test-Path $ElectronExe) {
-  # Use ProcessStartInfo to explicitly remove ELECTRON_RUN_AS_NODE.
-  # VS Code (and other Electron apps) set this in their process environment, and
-  # it propagates to child processes. If set, electron.exe treats itself as a
-  # plain Node.js process - app.* APIs are undefined and the wallet crashes.
-  $walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronExe, "`"$ScriptDir`"")
-  $walletStartInfo.UseShellExecute = $false
-  $walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
-  [System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
-  Write-Host "  Wallet launched (local runtime). Use Mining tab once peers are connected." -ForegroundColor Green
-} elseif (Test-Path $InstalledWalletExe) {
-  Start-Process -FilePath $InstalledWalletExe | Out-Null
-  Write-Host "  Wallet launched (installed app). Use Mining tab once peers are connected." -ForegroundColor Green
-}
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan

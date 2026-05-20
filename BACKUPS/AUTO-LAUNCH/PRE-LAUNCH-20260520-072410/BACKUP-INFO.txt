@@ -1,0 +1,3 @@
+created=2026-05-20 07:24:10
+type=automatic pre-launch backup
+source=C:\Users\tourj\ETHII ETH2

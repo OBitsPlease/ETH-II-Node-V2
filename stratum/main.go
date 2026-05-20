@@ -411,6 +411,10 @@ var (
 
 	blocksMu     sync.Mutex
 	recentBlocks []BlockRecord // cap 10000
+
+	confirmedBlocksMu        sync.RWMutex
+	confirmedPoolBlocks      []BlockRecord
+	confirmedBlocksRefreshed time.Time
 )
 
 func recordShare(worker string, valid bool) {
@@ -423,38 +427,112 @@ func recordShare(worker string, valid bool) {
 
 	if valid {
 		atomic.AddInt64(&totalAccepted, 1)
-		netStatsMu.RLock()
-		blockNum := netStats.BlockHeight
-		netStatsMu.RUnlock()
-
-		blocksMu.Lock()
-		recentBlocks = append(recentBlocks, BlockRecord{
-			Worker:   worker,
-			BlockNum: blockNum,
-			At:       time.Now(),
-			Reward:   5.0,
-		})
-		if len(recentBlocks) > 10000 {
-			recentBlocks = recentBlocks[len(recentBlocks)-10000:]
-		}
-		blocksMu.Unlock()
-		totalMinedMu.Lock()
-		totalMined += 5.0
-		totalMinedMu.Unlock()
-
-		if worker != "" {
-			blockTotalsMu.Lock()
-			if blockTotals.WorkerBlocks == nil {
-				blockTotals.WorkerBlocks = map[string]int64{}
-			}
-			blockTotals.TotalBlocks++
-			blockTotals.WorkerBlocks[worker]++
-			blockTotalsMu.Unlock()
-			saveBlockTotals()
-		}
 	} else {
 		atomic.AddInt64(&totalRejected, 1)
 	}
+}
+
+func countHistoricalPoolBlockRecords(minerAddress string) ([]BlockRecord, error) {
+	minerAddress = strings.ToLower(strings.TrimSpace(minerAddress))
+	if minerAddress == "" {
+		return nil, fmt.Errorf("missing miner address")
+	}
+
+	latestHex := rpcHexString("eth_blockNumber", nil)
+	latest := hexToUint64(latestHex)
+	blocks := make([]BlockRecord, 0)
+
+	for blockNum := uint64(0); blockNum <= latest; blockNum++ {
+		blockHex := fmt.Sprintf("0x%x", blockNum)
+		raw, err := rpcCall("eth_getBlockByNumber", []interface{}{blockHex, false})
+		if err != nil {
+			return blocks, err
+		}
+		var block struct {
+			Number    string `json:"number"`
+			Miner     string `json:"miner"`
+			Timestamp string `json:"timestamp"`
+		}
+		if err := json.Unmarshal(raw, &block); err != nil {
+			continue
+		}
+		if strings.EqualFold(block.Miner, minerAddress) {
+			resolvedNum := hexToUint64(block.Number)
+			if resolvedNum == 0 && blockNum > 0 {
+				resolvedNum = blockNum
+			}
+			blocks = append(blocks, BlockRecord{
+				Worker:   minerAddress,
+				BlockNum: resolvedNum,
+				At:       time.Unix(int64(hexToUint64(block.Timestamp)), 0),
+				Reward:   5.0,
+			})
+		}
+	}
+
+	return blocks, nil
+}
+
+func getConfirmedPoolBlocks() []BlockRecord {
+	confirmedBlocksMu.RLock()
+	cached := append([]BlockRecord(nil), confirmedPoolBlocks...)
+	refreshed := confirmedBlocksRefreshed
+	confirmedBlocksMu.RUnlock()
+
+	if len(cached) > 0 && time.Since(refreshed) < 30*time.Second {
+		return cached
+	}
+
+	miner := getPoolEtherbase()
+	if miner == "" {
+		return cached
+	}
+
+	blocks, err := countHistoricalPoolBlockRecords(miner)
+	if err != nil {
+		log.Printf("[totals] actual block refresh failed: %v", err)
+		return cached
+	}
+
+	// Keep one record per block height to prevent stale/duplicate rows.
+	if len(blocks) > 1 {
+		dedup := make(map[uint64]BlockRecord, len(blocks))
+		for _, b := range blocks {
+			if b.BlockNum == 0 {
+				continue
+			}
+			existing, ok := dedup[b.BlockNum]
+			if !ok || b.At.After(existing.At) {
+				dedup[b.BlockNum] = b
+			}
+		}
+		if len(dedup) > 0 {
+			uniq := make([]BlockRecord, 0, len(dedup))
+			for _, b := range dedup {
+				uniq = append(uniq, b)
+			}
+			sort.Slice(uniq, func(i, j int) bool { return uniq[i].BlockNum < uniq[j].BlockNum })
+			blocks = uniq
+		}
+	}
+
+	confirmedBlocksMu.Lock()
+	confirmedPoolBlocks = append([]BlockRecord(nil), blocks...)
+	confirmedBlocksRefreshed = time.Now()
+	confirmedBlocksMu.Unlock()
+
+	return append([]BlockRecord(nil), blocks...)
+}
+
+func getSessionConfirmedPoolBlocks() []BlockRecord {
+	all := getConfirmedPoolBlocks()
+	out := make([]BlockRecord, 0, len(all))
+	for _, block := range all {
+		if !block.At.Before(startTime) {
+			out = append(out, block)
+		}
+	}
+	return out
 }
 
 // ─── Settings persistence ─────────────────────────────────────────────────────
@@ -1174,17 +1252,10 @@ func startDashboard(addr string) {
 		ns := netStats
 		netStatsMu.RUnlock()
 
-		blocksMu.Lock()
-		blocksFound := len(recentBlocks)
-		blocksMu.Unlock()
-
-		totalMinedMu.Lock()
-		tm := totalMined
-		totalMinedMu.Unlock()
-
-		blockTotalsMu.RLock()
-		allTimeBlocks := blockTotals.TotalBlocks
-		blockTotalsMu.RUnlock()
+		sessionBlocks := getSessionConfirmedPoolBlocks()
+		blocksFound := len(sessionBlocks)
+		allTimeBlocks := len(getConfirmedPoolBlocks())
+		tm := float64(blocksFound) * 5.0
 
 		stratumPort := *stratumAddr
 		if parts := strings.Split(*stratumAddr, ":"); len(parts) > 0 {
@@ -1422,12 +1493,6 @@ func startDashboard(addr string) {
 					}
 				}
 			}
-			blockTotalsMu.RLock()
-			atb := int64(0)
-			if blockTotals.WorkerBlocks != nil {
-				atb = blockTotals.WorkerBlocks[m.Worker]
-			}
-			blockTotalsMu.RUnlock()
 			out[i] = minerJSON{
 				ID:                m.ID,
 				Worker:            m.Worker,
@@ -1439,7 +1504,7 @@ func startDashboard(addr string) {
 				HashrateSource:    source,
 				Accepted:          m.Accepted,
 				Rejected:          m.Rejected,
-				AllTimeBlocks:     atb,
+				AllTimeBlocks:     0,
 				ConnectedAt:       m.ConnectedAt.Format(time.RFC3339),
 				LastSeen:          m.LastSeen.Format(time.RFC3339),
 			}
@@ -1454,17 +1519,18 @@ func startDashboard(addr string) {
 	})
 
 	mux.HandleFunc("/api/blocks", func(w http.ResponseWriter, r *http.Request) {
-		blocksMu.Lock()
-		out := make([]map[string]interface{}, len(recentBlocks))
-		for i, b := range recentBlocks {
-			out[len(recentBlocks)-1-i] = map[string]interface{}{
+		blocks := getSessionConfirmedPoolBlocks()
+		etherbase := getPoolEtherbase()
+		out := make([]map[string]interface{}, len(blocks))
+		for i, b := range blocks {
+			out[len(blocks)-1-i] = map[string]interface{}{
 				"worker":   b.Worker,
+				"address":  etherbase,
 				"blockNum": b.BlockNum,
 				"at":       b.At.Format(time.RFC3339),
 				"reward":   b.Reward,
 			}
 		}
-		blocksMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		json.NewEncoder(w).Encode(out)
@@ -1536,14 +1602,13 @@ func startDashboard(addr string) {
 		for i, s := range samples {
 			out[i] = sJSON{T: s.T.Format(time.RFC3339), HR: s.HR}
 		}
-		blocksMu.Lock()
+		confirmedBlocks := getSessionConfirmedPoolBlocks()
 		var blks []bJSON
-		for _, b := range recentBlocks {
-			if b.Worker == worker || worker == "" {
+		for _, b := range confirmedBlocks {
+			if worker == "" {
 				blks = append(blks, bJSON{T: b.At.Format(time.RFC3339), N: b.BlockNum})
 			}
 		}
-		blocksMu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -1582,12 +1647,7 @@ func startDashboard(addr string) {
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 			return
 		}
-		blockTotalsMu.RLock()
 		wBlockCounts := map[string]int{}
-		for worker, cnt := range blockTotals.WorkerBlocks {
-			wBlockCounts[worker] = int(cnt)
-		}
-		blockTotalsMu.RUnlock()
 
 		type wRow struct {
 			Worker      string  `json:"worker"`
@@ -1686,23 +1746,20 @@ func startDashboard(addr string) {
 			pending = getBalance(address, "pending")
 		}
 
-		blocksMu.Lock()
 		type txRec struct {
 			Type   string  `json:"type"`
 			Amount float64 `json:"amount"`
 			At     string  `json:"at"`
 			Block  uint64  `json:"block"`
 		}
+		confirmedBlocks := getConfirmedPoolBlocks()
 		var txs []txRec
-		for i := len(recentBlocks) - 1; i >= 0; i-- {
-			b := recentBlocks[i]
+		for i := len(confirmedBlocks) - 1; i >= 0; i-- {
+			b := confirmedBlocks[i]
 			txs = append(txs, txRec{Type: "Mining Reward", Amount: b.Reward, At: b.At.Format(time.RFC3339), Block: b.BlockNum})
 		}
-		blocksMu.Unlock()
 
-		totalMinedMu.Lock()
-		tm := totalMined
-		totalMinedMu.Unlock()
+		tm := float64(len(confirmedBlocks)) * 5.0
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"address":     address,
 			"allAccounts": accounts,

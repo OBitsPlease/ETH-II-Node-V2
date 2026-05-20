@@ -3,6 +3,9 @@
 :: Clears ELECTRON_RUN_AS_NODE only for this process - does NOT affect system or other apps
 set ELECTRON_RUN_AS_NODE=
 cd /d "%~dp0"
+if exist "..\repair-shortcuts.ps1" (
+	powershell -NoProfile -ExecutionPolicy Bypass -File "..\repair-shortcuts.ps1" -Quiet
+)
 if exist "..\update-manager.ps1" (
 	powershell -NoProfile -ExecutionPolicy Bypass -File "..\update-manager.ps1" -Mode auto -SkipSuite
 )
