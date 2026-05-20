@@ -199,7 +199,7 @@ ipcMain.handle('get-balance', async (_, { address }) => {
     if (!isFinite(balanceEth)) throw new Error('Non-finite balance');
     return { success: true, balance: balanceEth.toFixed(4) };
   } catch (e) {
-    return { success: false, error: 'Node offline. Start ethii.exe to connect.' };
+    return { success: false, error: 'RPC unavailable. Start a local node or check VPS connectivity.' };
   }
 });
 
@@ -267,6 +267,7 @@ ipcMain.handle('get-node-status', async () => {
 
     return {
       success: true,
+      source: 'local',
       blockNumber: localBlockNum,
       localBlockNumber: localBlockNum,
       networkBlockNumber: networkBlockNum,
@@ -278,7 +279,33 @@ ipcMain.handle('get-node-status', async () => {
       rpcPort: RPC_PORT,
     };
   } catch (e) {
-    return { success: false, error: 'Node offline', rpcPort: RPC_PORT };
+    // Wallet-only mode: if local RPC is down, fall back to VPS read RPC.
+    try {
+      const [networkBlockHex, networkPeersHex, networkLatestBlock] = await Promise.all([
+        rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
+        rpcCallOnUrl(READ_RPC_URL, 'net_peerCount', []),
+        rpcCallOnUrl(READ_RPC_URL, 'eth_getBlockByNumber', ['latest', false]),
+      ]);
+
+      const networkBlockNum = parseInt(networkBlockHex, 16);
+      const networkPeers = parseInt(networkPeersHex, 16);
+
+      return {
+        success: true,
+        source: 'vps',
+        blockNumber: networkBlockNum,
+        localBlockNumber: null,
+        networkBlockNumber: networkBlockNum,
+        networkPeers: Number.isFinite(networkPeers) ? networkPeers : null,
+        peers: 0,
+        syncLag: 0,
+        timestamp: networkLatestBlock ? parseInt(networkLatestBlock.timestamp, 16) : null,
+        gasLimit: networkLatestBlock ? parseInt(networkLatestBlock.gasLimit, 16).toString() : null,
+        rpcPort: 'vps',
+      };
+    } catch {
+      return { success: false, error: 'Node and VPS RPC offline', rpcPort: RPC_PORT };
+    }
   }
 });
 

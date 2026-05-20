@@ -255,11 +255,30 @@ async function refreshNodeStatus() {
   const result = await window.ethii.getNodeStatus();
   console.log('[UI] getNodeStatus result:', result);
   if (result.success) {
+    const source = result.source || 'local';
     const localBlock = Number.isFinite(result.localBlockNumber) ? result.localBlockNumber : result.blockNumber;
     const networkBlock = Number.isFinite(result.networkBlockNumber) ? result.networkBlockNumber : null;
     const peers = Number.isFinite(result.peers) ? result.peers : 0;
     const networkPeers = Number.isFinite(result.networkPeers) ? result.networkPeers : null;
     const lag = Number.isFinite(result.syncLag) ? result.syncLag : null;
+
+    if (source === 'vps') {
+      indicator.className = 'node-indicator online';
+      statusText.textContent = `Connected - VPS #${networkBlock !== null ? networkBlock : '—'}`;
+
+      document.getElementById('node-block').textContent = networkBlock !== null ? networkBlock : '—';
+      document.getElementById('node-network-block').textContent = networkBlock !== null ? networkBlock : '—';
+      document.getElementById('node-network-peers').textContent = networkPeers !== null ? networkPeers : '—';
+      document.getElementById('node-sync-lag').textContent = '0';
+      document.getElementById('node-peers').textContent = '—';
+
+      if (syncFill && syncLabel) {
+        syncFill.classList.remove('indeterminate');
+        syncFill.style.width = '100%';
+        syncLabel.textContent = 'Wallet-only mode: using VPS RPC.';
+      }
+      return;
+    }
 
     const isSynced = lag !== null ? lag <= 3 : peers > 0;
     indicator.className = isSynced ? 'node-indicator online' : 'node-indicator offline';
@@ -312,7 +331,7 @@ async function refreshNodeStatus() {
   } else {
     console.log('[UI] Node offline, error:', result.error);
     indicator.className = 'node-indicator offline';
-    statusText.textContent = 'Node offline - start ethii.exe to connect';
+    statusText.textContent = 'Node and VPS RPC offline';
     document.getElementById('node-block').textContent = '—';
     document.getElementById('node-network-block').textContent = '—';
     document.getElementById('node-network-peers').textContent = '—';
