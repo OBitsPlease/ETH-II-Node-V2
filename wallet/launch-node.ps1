@@ -17,12 +17,21 @@ $StratumExe  = Join-Path $RootDir "stratum.exe"
 $DataDir     = Join-Path $RootDir "data"
 $GenesisFile = Join-Path $ScriptDir "genesis.json"
 $ElectronExe = Join-Path $ScriptDir "node_modules\electron\dist\electron.exe"
+$InstalledWalletExe = Join-Path $env:LOCALAPPDATA "Programs\ETH II Wallet\ETH II Wallet.exe"
 $AddrFile    = Join-Path $ScriptDir "etherbase.txt"
+$PayoutFileA = Join-Path $RootDir "payout.json"
+$PayoutFileB = Join-Path $RootDir "stratum\payout.json"
 $InfoFile    = Join-Path $RootDir "ETHII-Mining-Info.txt"
 
 if (-not (Test-Path $EthiiExe))    { Write-Host "ERROR: ethii.exe not found at $EthiiExe" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
 if (-not (Test-Path $StratumExe))  { Write-Host "ERROR: stratum.exe not found at $StratumExe" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
-if (-not (Test-Path $ElectronExe)) { Write-Host "ERROR: Electron not found at $ElectronExe" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
+if ((-not (Test-Path $ElectronExe)) -and (-not (Test-Path $InstalledWalletExe))) {
+  Write-Host "ERROR: Wallet runtime not found." -ForegroundColor Red
+  Write-Host "  Missing local Electron: $ElectronExe" -ForegroundColor Red
+  Write-Host "  Missing installed wallet: $InstalledWalletExe" -ForegroundColor Red
+  Read-Host "Press Enter to exit"
+  exit 1
+}
 if (-not (Test-Path $GenesisFile)) { Write-Host "ERROR: genesis.json not found at $GenesisFile" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
 
 # ── Ensure firewall allows inbound connections on stratum and RPC ports ────────
@@ -261,6 +270,25 @@ if (Test-Path $AddrFile) {
     $Etherbase = (Get-Content $AddrFile -Raw).Trim()
     Write-Host "  Saved address: $Etherbase" -ForegroundColor Green
 }
+
+if ($Etherbase -eq "") {
+  foreach ($candidate in @($PayoutFileA, $PayoutFileB)) {
+    if (Test-Path $candidate) {
+      try {
+        $payoutCfg = Get-Content $candidate -Raw | ConvertFrom-Json
+        if ($payoutCfg -and $payoutCfg.miningAddress) {
+          $Etherbase = ([string]$payoutCfg.miningAddress).Trim()
+          if ($Etherbase -ne "") {
+            Set-Content -Path $AddrFile -Value $Etherbase -NoNewline
+            Write-Host "  Recovered address from $(Split-Path $candidate -Leaf): $Etherbase" -ForegroundColor Green
+            break
+          }
+        }
+      } catch { }
+    }
+  }
+}
+
 if ($Etherbase -eq "") {
     Write-Host ""
     $Etherbase = Read-Host "Enter your ETHII mining address (0x...)"
@@ -577,9 +605,38 @@ for ($j = 0; $j -lt 20; $j++) {
 }
 
 # Start the PoW miner via RPC (--mine flag is deprecated in this geth version)
-# Pass 0 threads to enable work generation (remote sealer) without CPU mining,
-# since all block production comes from GPU/ASIC via the stratum proxy.
+# only when local node is close to the VPS network head. Pass 0 threads to
+# enable work generation (remote sealer) without CPU mining, since all block
+# production comes from GPU/ASIC via the stratum proxy.
+$safeToMine = $false
+$syncLagThreshold = 0
+
 if ($peerReady) {
+  for ($k = 0; $k -lt 20; $k++) {
+    try {
+      $localBlockHex = (Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
+        -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' `
+        -ContentType "application/json" -TimeoutSec 3).result
+      $remoteBlockHex = (Invoke-RestMethod -Uri $PublicRpcUrl -Method POST `
+        -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' `
+        -ContentType "application/json" -TimeoutSec 5).result
+
+      if ($localBlockHex -and $remoteBlockHex) {
+        $localBlock = [Convert]::ToInt64($localBlockHex, 16)
+        $remoteBlock = [Convert]::ToInt64($remoteBlockHex, 16)
+        $lag = [Math]::Max(0, $remoteBlock - $localBlock)
+        if ($lag -le $syncLagThreshold) {
+          $safeToMine = $true
+          break
+        }
+        Write-Host "  Waiting for sync before miner start: local=$localBlock remote=$remoteBlock lag=$lag" -ForegroundColor Yellow
+      }
+    } catch { }
+    Start-Sleep -Seconds 2
+  }
+}
+
+if ($safeToMine) {
   try {
     Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
       -Body '{"jsonrpc":"2.0","method":"miner_start","params":[0],"id":1}' `
@@ -589,8 +646,8 @@ if ($peerReady) {
     Write-Host "  WARNING: Could not auto-start miner via RPC: $_" -ForegroundColor Yellow
   }
 } else {
-  Write-Host "  WARNING: 0 peers detected. Skipping auto-miner start to avoid isolated-chain mining." -ForegroundColor Yellow
-  Write-Host "           Once peers connect, start mining from the Wallet Mining tab." -ForegroundColor Yellow
+  Write-Host "  WARNING: Node not sync-safe yet. Skipping auto-miner start to avoid wrong-chain mining." -ForegroundColor Yellow
+  Write-Host "           Wait until local height is near VPS height, then start mining from the Wallet Mining tab." -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -603,15 +660,20 @@ Write-Host "  Dashboard: http://127.0.0.1:$DashboardPort" -ForegroundColor Cyan
 
 # ── Launch Wallet GUI ─────────────────────────────────────────────────────────
 Write-Host "Launching ETHII Wallet..." -ForegroundColor Yellow
-# Use ProcessStartInfo to explicitly remove ELECTRON_RUN_AS_NODE.
-# VS Code (and other Electron apps) set this in their process environment, and
-# it propagates to child processes. If set, electron.exe treats itself as a
-# plain Node.js process - app.* APIs are undefined and the wallet crashes.
-$walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronExe, "`"$ScriptDir`"")
-$walletStartInfo.UseShellExecute = $false
-$walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
-[System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
-Write-Host "  Wallet launched. Use Mining tab once peers are connected." -ForegroundColor Green
+if (Test-Path $ElectronExe) {
+  # Use ProcessStartInfo to explicitly remove ELECTRON_RUN_AS_NODE.
+  # VS Code (and other Electron apps) set this in their process environment, and
+  # it propagates to child processes. If set, electron.exe treats itself as a
+  # plain Node.js process - app.* APIs are undefined and the wallet crashes.
+  $walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronExe, "`"$ScriptDir`"")
+  $walletStartInfo.UseShellExecute = $false
+  $walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
+  [System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
+  Write-Host "  Wallet launched (local runtime). Use Mining tab once peers are connected." -ForegroundColor Green
+} elseif (Test-Path $InstalledWalletExe) {
+  Start-Process -FilePath $InstalledWalletExe | Out-Null
+  Write-Host "  Wallet launched (installed app). Use Mining tab once peers are connected." -ForegroundColor Green
+}
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
