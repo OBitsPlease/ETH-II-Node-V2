@@ -25,7 +25,7 @@ jobs:
         run: |
           cd wallet
           npm ci
-          npm run build:win:walletonly
+          npm run build:win
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
