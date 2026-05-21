@@ -26,7 +26,8 @@ jobs:
 
       - name: Build ethii node from current repo
         run: |
-          go build -o ethii.exe ./cmd/geth
+          cd ethii
+          go build -o ../ethii.exe ./cmd/geth
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
