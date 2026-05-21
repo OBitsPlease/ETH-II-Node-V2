@@ -24,11 +24,9 @@ jobs:
           cd stratum
           go build -o ../stratum.exe .
 
-      - name: Clone and build ethii node
+      - name: Build ethii node from current repo
         run: |
-          git clone https://github.com/OBitsPlease/ethii-node.git ethii-src
-          cd ethii-src
-          go build -o ../ethii.exe ./cmd/geth
+          go build -o ethii.exe ./cmd/geth
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
