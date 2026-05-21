@@ -24,11 +24,6 @@ jobs:
           cd stratum
           go build -o ../stratum.exe .
 
-      - name: Build ethii node from current repo
-        run: |
-          cd ethii
-          go build -o ../ethii.exe ./cmd/geth
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -46,7 +41,7 @@ jobs:
           files: |
             wallet/dist/*.exe
             stratum.exe
-            ethii.exe
+            ethii-linux-syncfix
             suite-version.txt
             watchdog-autopilot.ps1
             launch-stratum.ps1
