@@ -35,14 +35,30 @@ jobs:
           npm ci
           npx electron-builder --win
 
+      - name: Verify required release files
+        shell: pwsh
+        run: |
+          $required = @(
+            "ethii.exe",
+            "ethii-linux-syncfix",
+            "suite-version.txt"
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) {
+              throw "Missing required release file: $file"
+            }
+          }
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             wallet/dist/*.exe
             stratum.exe
+            ethii.exe
             ethii-linux-syncfix
             suite-version.txt
             watchdog-autopilot.ps1
+            launch-stratum.bat
             launch-stratum.ps1
             README.md
