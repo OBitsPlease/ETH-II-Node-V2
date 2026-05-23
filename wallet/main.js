@@ -23,10 +23,11 @@ if (!gotLock) {
 }
 
 let WALLET_FILE; // initialized after app is ready
-let RPC_PORT = 8545; // default, may be updated by port scan
-let RPC_URL = 'http://127.0.0.1:8545';
+let RPC_PORT = 'vps'; // local RPC port when available, otherwise VPS mode
 const PUBLIC_RPC_URL = 'https://ethii.net/rpc'; // canonical public read RPC
 const READ_RPC_URL = PUBLIC_RPC_URL; // canonical chain source for wallet reads/tx
+let RPC_URL = READ_RPC_URL;
+let HAS_LOCAL_RPC = false;
 const RELEASES_API_URL = 'https://api.github.com/repos/OBitsPlease/ethii-miner-suite/releases';
 const HTTP_HEADERS = { 'User-Agent': 'ETHII-Wallet-Updater' };
 const CHAIN_ID = 2048;
@@ -132,20 +133,15 @@ function isPortInUse(port) {
   });
 }
 
-// Find the port where the ETHII node is listening.
-// Reads rpc-port.txt written by launch-node.ps1 (which knows the exact port).
-// Falls back to scanning if the file isn't present (e.g. node started manually).
+// Find local node RPC port from wallet/rpc-port.txt when present.
+// In wallet-only deployments this file may not exist, which is expected.
 async function findNodePort(base = 8545) {
   const portFile = path.join(__dirname, 'rpc-port.txt');
   if (fs.existsSync(portFile)) {
     const p = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
     if (!isNaN(p) && p > 0) return p;
   }
-  // Fallback: scan for the first port in use
-  for (let p = base; p < base + 20; p++) {
-    if (await isPortInUse(p)) return p;
-  }
-  return base;
+  return null;
 }
 
 // Write the correct VPS bootnode into static-nodes.json and config.toml so the
@@ -231,22 +227,30 @@ app.on('second-instance', () => {
 
 app.whenReady().then(async () => {
   WALLET_FILE = path.join(app.getPath('userData'), 'ethii-wallet.json');
-  // Find the port where the ETHII node RPC is listening (default 8545)
-  RPC_PORT = await findNodePort(8545);
-  RPC_URL = `http://127.0.0.1:${RPC_PORT}`;
-  // Ensure the VPS peer is configured in the data directory so the node
-  // always connects to the chain on first launch (or after a reinstall).
-  ensureBootstrapFiles();
+  const detectedPort = await findNodePort(8545);
+  HAS_LOCAL_RPC = Number.isInteger(detectedPort) && detectedPort > 0;
+  if (HAS_LOCAL_RPC) {
+    RPC_PORT = detectedPort;
+    RPC_URL = `http://127.0.0.1:${RPC_PORT}`;
+    // Ensure the VPS peer is configured in the data directory so the node
+    // always connects to the chain on first launch (or after a reinstall).
+    ensureBootstrapFiles();
+  } else {
+    RPC_PORT = 'vps';
+    RPC_URL = READ_RPC_URL;
+  }
   createWindow();
   tryConnectProvider();
   setTimeout(() => {
     checkForWalletUpdate().catch(() => {});
   }, 4000);
-  // Fire an immediate sync nudge shortly after startup so the local node
-  // connects to the VPS peer right away rather than waiting for the UI timer.
-  setTimeout(() => {
-    performSyncNudge({ force: true, reason: 'startup' }).catch(() => {});
-  }, 6000);
+  if (HAS_LOCAL_RPC) {
+    // Fire an immediate sync nudge shortly after startup so the local node
+    // connects to the VPS peer right away rather than waiting for the UI timer.
+    setTimeout(() => {
+      performSyncNudge({ force: true, reason: 'startup' }).catch(() => {});
+    }, 6000);
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) focusOrCreateMainWindow();
   });
@@ -339,7 +343,7 @@ ipcMain.handle('get-balance', async (_, { address }) => {
     if (!isFinite(balanceEth)) throw new Error('Non-finite balance');
     return { success: true, balance: balanceEth.toFixed(4) };
   } catch (e) {
-    return { success: false, error: 'RPC unavailable. Start a local node or check VPS connectivity.' };
+    return { success: false, error: 'RPC unavailable. Check VPS connectivity (or local node, if used).' };
   }
 });
 
@@ -355,21 +359,53 @@ ipcMain.handle('send-tx', async (_, { privateKey, to, amount, gasPrice }) => {
       gasPrice: ethers.parseUnits(gasPrice || '0.5', 'gwei'),
       chainId: CHAIN_ID,
     });
-    await tx.wait(1);
-    return { success: true, hash: tx.hash };
+    // Return immediately after broadcast so UI doesn't look stuck on "Signing".
+    return { success: true, hash: tx.hash, status: 'broadcast' };
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
 
-// Get transaction history (last 10 blocks)
-ipcMain.handle('get-tx-history', async (_, { address }) => {
+// Get transaction history for an address by scanning chain blocks.
+ipcMain.handle('get-tx-history', async (_, { address, limit = 200 }) => {
   try {
-    if (!provider) tryConnectProvider();
-    const blockNum = await provider.getBlockNumber();
-    const from = Math.max(0, blockNum - 1000);
-    const logs = await provider.getLogs({ fromBlock: from, toBlock: blockNum });
-    return { success: true, logs: logs.slice(0, 20) };
+    if (!address) throw new Error('No address provided');
+
+    const needle = String(address).toLowerCase();
+    const latestHex = await rpcCallRead('eth_blockNumber', []);
+    let blockNum = parseInt(latestHex, 16);
+    if (!Number.isFinite(blockNum) || blockNum < 0) {
+      throw new Error('Unable to read latest block');
+    }
+
+    const txs = [];
+    for (let n = blockNum; n >= 0; n -= 1) {
+      if (txs.length >= limit) break;
+      const blockHex = '0x' + n.toString(16);
+      const block = await rpcCallRead('eth_getBlockByNumber', [blockHex, true]);
+      if (!block || !Array.isArray(block.transactions)) continue;
+
+      for (const tx of block.transactions) {
+        const from = String(tx.from || '').toLowerCase();
+        const to = tx.to ? String(tx.to).toLowerCase() : '';
+        if (from !== needle && to !== needle) continue;
+
+        const direction = to === needle ? 'in' : 'out';
+        txs.push({
+          hash: tx.hash,
+          blockNumber: parseInt(tx.blockNumber || blockHex, 16),
+          timestamp: parseInt(block.timestamp || '0x0', 16),
+          from: tx.from || '',
+          to: tx.to || '',
+          value: ethers.formatEther(tx.value || '0x0'),
+          direction,
+        });
+
+        if (txs.length >= limit) break;
+      }
+    }
+
+    return { success: true, txs };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -431,6 +467,10 @@ ipcMain.handle('get-node-status', async () => {
 });
 
 async function performSyncNudge({ force = false, lag = null, reason = 'wallet-auto' } = {}) {
+  if (!HAS_LOCAL_RPC) {
+    return { success: true, nudged: false, reason: 'local-rpc-unavailable' };
+  }
+
   const now = Date.now();
   if (!force && now - lastAutoNudgeAt < AUTO_NUDGE_INTERVAL_MS) {
     return { success: true, nudged: false, reason: 'cooldown' };
@@ -537,6 +577,9 @@ async function rpcCallRead(method, params = []) {
 
 // Local-only RPC helper for node control and mining controls.
 async function rpcCallLocal(method, params = []) {
+  if (!HAS_LOCAL_RPC) {
+    throw new Error('Local RPC unavailable');
+  }
   return rpcCallOnUrl(RPC_URL, method, params);
 }
 

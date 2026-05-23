@@ -471,84 +471,45 @@ input[readonly] { color: var(--text-sub); cursor: default; }
 /* ---- RPC info ---- */
 .rpc-info { margin-top: 28px; }
 
-/* ---- MINING CONTROLS ---- */
-.mining-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  margin-bottom: 16px;
-}
-.toggle-row {
+/* ---- HISTORY ---- */
+.history-controls {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  user-select: none;
-}
-.mining-toggle {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--cyan);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.toggle-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text);
-}
-.mining-settings {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.thread-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-}
-.thread-slider {
-  flex: 1;
-  accent-color: var(--cyan);
-  height: 4px;
-  cursor: pointer;
-}
-.thread-number {
-  width: 70px !important;
-  text-align: center;
-  padding: 6px 8px !important;
-}
-.thread-unit {
-  font-size: 12px;
-  color: var(--text-sub);
-  white-space: nowrap;
-}
-.mining-controls {
-  display: flex;
-  gap: 12px;
-  margin-top: 24px;
+  gap: 10px;
   flex-wrap: wrap;
+  margin-bottom: 14px;
 }
-.mining-gpu-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--amber);
-  margin-bottom: 10px;
-}
-.mining-hint {
-  font-size: 12px;
-  color: var(--text-sub);
-  line-height: 1.6;
-  margin-bottom: 12px;
-}
-.mining-hint strong { color: var(--text); }
-.mining-hint code {
-  font-family: var(--mono);
-  font-size: 11px;
+
+.history-filter.active {
+  border-color: var(--cyan);
   color: var(--cyan);
-  background: var(--bg-input);
-  padding: 1px 5px;
-  border-radius: 3px;
 }
+
+.history-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.history-table th,
+.history-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.history-table thead th {
+  color: var(--text-sub);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+}
+
+.tx-dir-in { color: var(--green); font-weight: 600; }
+.tx-dir-out { color: var(--amber); font-weight: 600; }

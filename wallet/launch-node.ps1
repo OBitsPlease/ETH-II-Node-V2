@@ -1,10 +1,69 @@
 # ETHII Miner Suite Launcher
 # Starts: Node + Stratum Proxy + Wallet GUI
 
+param(
+  [string]$VpsHost = "91.99.231.217",
+  [string]$User = "root",
+  [string]$KeyPath = "$env:USERPROFILE\.ssh\ethii_vps"
+)
+
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir   = Split-Path -Parent $ScriptDir
 $BackupStatusFile = Join-Path $RootDir "BACKUPS\LATEST-BACKUPS.txt"
+
+function Resolve-RemoteRpcUrl {
+  param(
+    [string[]]$Candidates
+  )
+
+  foreach ($candidate in $Candidates) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+    try {
+      $probe = Invoke-RestMethod -Uri $candidate -Method POST `
+        -Body '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' `
+        -ContentType "application/json" -TimeoutSec 4 -ErrorAction Stop
+      if ($probe.result) {
+        return $candidate
+      }
+    } catch { }
+  }
+
+  if ($Candidates -and $Candidates.Count -gt 0) {
+    return $Candidates[0]
+  }
+
+  return ""
+}
+
+function Start-WalletApp {
+  param(
+    [string]$ElectronPath,
+    [string]$AppDir,
+    [string]$InstalledExe
+  )
+
+  try {
+    if (Test-Path $ElectronPath) {
+      $walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronPath, "`"$AppDir`"")
+      $walletStartInfo.UseShellExecute = $false
+      $walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
+      [System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
+      Write-Host "  Wallet launched (local runtime)." -ForegroundColor Green
+      return $true
+    }
+
+    if (Test-Path $InstalledExe) {
+      Start-Process -FilePath $InstalledExe | Out-Null
+      Write-Host "  Wallet launched (installed app)." -ForegroundColor Green
+      return $true
+    }
+  } catch {
+    Write-Host "  WARNING: Wallet launch failed: $_" -ForegroundColor Yellow
+  }
+
+  return $false
+}
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  ETHII Miner Suite - ETH 2.0 Proof of Work" -ForegroundColor Cyan
@@ -14,9 +73,10 @@ Write-Host ""
 # ── Auto-updater (wallet + node + stratum) ─────────────────────────────────
 $UpdaterScript = Join-Path $RootDir "update-manager.ps1"
 if (Test-Path $UpdaterScript) {
-  Write-Host "Checking for suite/wallet updates..." -ForegroundColor Cyan
+  Write-Host "Checking for suite/wallet updates (background)..." -ForegroundColor Cyan
   try {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $UpdaterScript -Mode auto
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$UpdaterScript`" -Mode auto" -WindowStyle Hidden | Out-Null
+    Write-Host "  Update check started in background." -ForegroundColor Green
   } catch {
     Write-Host "  WARNING: updater failed, continuing launch: $_" -ForegroundColor Yellow
   }
@@ -45,6 +105,10 @@ if ((-not (Test-Path $ElectronExe)) -and (-not (Test-Path $InstalledWalletExe)))
   exit 1
 }
 if (-not (Test-Path $GenesisFile)) { Write-Host "ERROR: genesis.json not found at $GenesisFile" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
+
+Write-Host "Launching ETHII Wallet (fast start)..." -ForegroundColor Yellow
+[void](Start-WalletApp -ElectronPath $ElectronExe -AppDir $ScriptDir -InstalledExe $InstalledWalletExe)
+Write-Host ""
 
 # ── Ensure firewall allows inbound connections on stratum and RPC ports ────────
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -236,6 +300,8 @@ $P2pPort       = Find-FreePort @(30303..30313)
 $StratumPort   = 3335   # Fixed - external miners (ASICs, GPUs) depend on this
 $DashboardPort = 8082   # Fixed - bookmarked URL stays consistent
 $BootnodeEnode = "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
+$BackupPeerEnode = "enode://27d014d0d66f332175ff7524f0f6fd6e877bc641cd2f0044d4d283dbd4ed134ba27e1ea6359543a024ceaf336a05ed1d5901e60643a7016ba018760d4df19d60@108.239.200.131:30303"
+$SeedEnodes = @($BootnodeEnode, $BackupPeerEnode) | Select-Object -Unique
 $PublicRpcUrl = "http://91.99.231.217:8545"
 
 # Ensure inbound P2P is open on the selected port so this node can accept peers.
@@ -261,12 +327,8 @@ Set-Content -Path $RpcPortFile -Value "$RpcPort" -NoNewline
 $gethDir = Join-Path $DataDir "geth"
 if (-not (Test-Path $gethDir)) { New-Item -ItemType Directory -Path $gethDir | Out-Null }
 $configTomlPath = Join-Path $gethDir "config.toml"
-$configToml = @"
-[Node.P2P]
-StaticNodes = [
-  "$BootnodeEnode"
-]
-"@
+$tomlNodes = $SeedEnodes | ForEach-Object { "  `"$_`"" }
+$configToml = "[Node.P2P]`r`nStaticNodes = [`r`n" + ($tomlNodes -join ",`r`n") + "`r`n]`r`n"
 Set-Content -Path $configTomlPath -Value $configToml -Encoding ASCII
 
 Write-Host "Scanning for available ports..." -ForegroundColor Yellow
@@ -520,20 +582,44 @@ if (-not $ready) {
 }
 Write-Host "  Node is ready!" -ForegroundColor Green
 
-# Force-add the VPS peer over RPC on startup. This makes peering reliable even
-# when discovery is slow or static peer config is not yet effective.
-try {
-  Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
-    -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $BootnodeEnode + '"],"id":1}') `
-    -ContentType "application/json" -TimeoutSec 3 | Out-Null
-  Write-Host "  Requested connection to VPS peer." -ForegroundColor Green
-} catch {
-  Write-Host "  WARNING: Could not request VPS peer connection: $_" -ForegroundColor Yellow
+# CPU mining warmup intentionally removed in wallet-only builds.
+Write-Host "  CPU mining warmup is disabled in this wallet build." -ForegroundColor DarkGray
+
+$RemoteRpcCandidates = @($PublicRpcUrl, "https://www.ethii.net/rpc")
+$EffectiveRemoteRpcUrl = Resolve-RemoteRpcUrl -Candidates $RemoteRpcCandidates
+if ($EffectiveRemoteRpcUrl -ne $PublicRpcUrl) {
+  Write-Host "  Remote RPC fallback active: $EffectiveRemoteRpcUrl" -ForegroundColor Yellow
+}
+
+# Force-add known peers over RPC on startup. This improves chain-follow when
+# one seed peer is temporarily unavailable.
+foreach ($seed in $SeedEnodes) {
+  try {
+    Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
+      -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $seed + '"],"id":1}') `
+      -ContentType "application/json" -TimeoutSec 3 | Out-Null
+    Write-Host "  Requested connection to seed peer: $seed" -ForegroundColor Green
+  } catch {
+    Write-Host "  WARNING: Could not request seed peer $seed : $_" -ForegroundColor Yellow
+  }
+}
+
+# Refresh the VPS static peer entry so both nodes explicitly list each other.
+$PeerSyncScript = Join-Path $RootDir "sync-vps-peer.ps1"
+if (Test-Path $PeerSyncScript) {
+  try {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $PeerSyncScript `
+      -VpsHost $VpsHost -User $User -KeyPath $KeyPath -LocalRpcUrl "http://127.0.0.1:$RpcPort" `
+      -NodeLog $NodeLog | Write-Host
+    Write-Host "  Refreshed VPS static peer entry from this PC." -ForegroundColor Green
+  } catch {
+    Write-Host "  WARNING: Could not refresh VPS peer config: $_" -ForegroundColor Yellow
+  }
 }
 
 # Kick off sync explicitly to the current VPS head hash (ETHII sync override service).
 try {
-  $vpsHead = Invoke-RestMethod -Uri $PublicRpcUrl -Method POST `
+  $vpsHead = Invoke-RestMethod -Uri $EffectiveRemoteRpcUrl -Method POST `
     -Body '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' `
     -ContentType "application/json" -TimeoutSec 5
   $targetHash = $vpsHead.result.hash
@@ -547,29 +633,10 @@ try {
   Write-Host "  WARNING: Could not trigger debug_sync: $_" -ForegroundColor Yellow
 }
 
-# Launch wallet early so UI is available immediately while sync continues.
-Write-Host "Launching ETHII Wallet..." -ForegroundColor Yellow
-if (Test-Path $ElectronExe) {
-  # Use ProcessStartInfo to explicitly remove ELECTRON_RUN_AS_NODE.
-  # VS Code (and other Electron apps) set this in their process environment, and
-  # it propagates to child processes. If set, electron.exe treats itself as a
-  # plain Node.js process - app.* APIs are undefined and the wallet crashes.
-  $walletStartInfo = New-Object System.Diagnostics.ProcessStartInfo($ElectronExe, "`"$ScriptDir`"")
-  $walletStartInfo.UseShellExecute = $false
-  $walletStartInfo.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE")
-  [System.Diagnostics.Process]::Start($walletStartInfo) | Out-Null
-  Write-Host "  Wallet launched (local runtime)." -ForegroundColor Green
-} elseif (Test-Path $InstalledWalletExe) {
-  Start-Process -FilePath $InstalledWalletExe | Out-Null
-  Write-Host "  Wallet launched (installed app)." -ForegroundColor Green
-}
-Write-Host ""
+# Wallet was launched earlier in fast-start mode.
 
-# Keep nudging sync in the background for a short period. Some ETHII builds
-# only advance to the last explicitly requested target hash when using the
-# sync override service.
-$syncNudgeJob = Start-Job -ArgumentList $RpcPort,$PublicRpcUrl,$BootnodeEnode,$nodeProc.Id -ScriptBlock {
-  param($LocalRpcPort, $RemoteRpcUrl, $Bootnode, $NodePid)
+$syncNudgeJob = Start-Job -ArgumentList $RpcPort,$EffectiveRemoteRpcUrl,$SeedEnodes,$nodeProc.Id -ScriptBlock {
+  param($LocalRpcPort, $RemoteRpcUrl, $Bootnodes, $NodePid)
   while ($true) {
     if (-not (Get-Process -Id $NodePid -ErrorAction SilentlyContinue)) {
       break
@@ -593,10 +660,13 @@ $syncNudgeJob = Start-Job -ArgumentList $RpcPort,$PublicRpcUrl,$BootnodeEnode,$n
       if ($localNumHex -and $remoteNumHex -and $remoteHash) {
         $localNum = [Convert]::ToInt64($localNumHex, 16)
         $remoteNum = [Convert]::ToInt64($remoteNumHex, 16)
-        if ($peerCount -eq 0 -and $Bootnode) {
-          Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
-            -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $Bootnode + '"],"id":1}') `
-            -ContentType "application/json" -TimeoutSec 3 | Out-Null
+        if ($peerCount -eq 0 -and $Bootnodes) {
+          foreach ($seed in $Bootnodes) {
+            if ([string]::IsNullOrWhiteSpace($seed)) { continue }
+            Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
+              -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $seed + '"],"id":1}') `
+              -ContentType "application/json" -TimeoutSec 3 | Out-Null
+          }
         }
         if ($localNum -lt $remoteNum) {
           Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
@@ -609,71 +679,16 @@ $syncNudgeJob = Start-Job -ArgumentList $RpcPort,$PublicRpcUrl,$BootnodeEnode,$n
   }
 }
 
-# Wait briefly for at least one peer before enabling mining work.
-# This avoids mining on an isolated local fork after startup.
-$peerReady = $false
-for ($j = 0; $j -lt 20; $j++) {
-  Start-Sleep -Seconds 1
-  try {
-    $peerResp = Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
-      -Body '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' `
-      -ContentType "application/json" -TimeoutSec 2 -ErrorAction Stop
-    $peerHex = $peerResp.result
-    $peerCount = [Convert]::ToInt32($peerHex, 16)
-    if ($peerCount -gt 0) { $peerReady = $true; break }
-  } catch { }
-}
-
-# Start the PoW miner via RPC (--mine flag is deprecated in this geth version)
-# only when local node is close to the VPS network head. Pass 0 threads to
-# enable work generation (remote sealer) without CPU mining, since all block
-# production comes from GPU/ASIC via the stratum proxy.
-$safeToMine = $false
-$syncLagThreshold = 0
-
-if ($peerReady) {
-  for ($k = 0; $k -lt 20; $k++) {
-    try {
-      $localBlockHex = (Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
-        -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' `
-        -ContentType "application/json" -TimeoutSec 3).result
-      $remoteBlockHex = (Invoke-RestMethod -Uri $PublicRpcUrl -Method POST `
-        -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' `
-        -ContentType "application/json" -TimeoutSec 5).result
-
-      if ($localBlockHex -and $remoteBlockHex) {
-        $localBlock = [Convert]::ToInt64($localBlockHex, 16)
-        $remoteBlock = [Convert]::ToInt64($remoteBlockHex, 16)
-        $lag = [Math]::Max(0, $remoteBlock - $localBlock)
-        if ($lag -le $syncLagThreshold) {
-          $safeToMine = $true
-          break
-        }
-        Write-Host "  Waiting for sync before enabling stratum work: local=$localBlock remote=$remoteBlock lag=$lag" -ForegroundColor Yellow
-      }
-    } catch { }
-    Start-Sleep -Seconds 2
-  }
-}
-
-if ($safeToMine) {
-  try {
-    Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
-      -Body '{"jsonrpc":"2.0","method":"miner_start","params":[0],"id":1}' `
-      -ContentType "application/json" | Out-Null
-    Write-Host "  Stratum work generation enabled." -ForegroundColor Green
-  } catch {
-    Write-Host "  WARNING: Could not enable stratum work via RPC: $_" -ForegroundColor Yellow
-  }
-} else {
-  Write-Host "  WARNING: Node not sync-safe yet. Delaying stratum work generation to avoid wrong-chain work." -ForegroundColor Yellow
-  Write-Host "           Wait until local height is near VPS height, then relaunch Miner Suite if needed." -ForegroundColor Yellow
-}
+# Stratum should use the local node so ethash_getWork is always available.
+# The local node still follows VPS chain via seed peers + debug_sync nudges.
+$StratumNodeUrl = "http://127.0.0.1:$RpcPort"
+Write-Host "  Stratum node RPC : $StratumNodeUrl" -ForegroundColor Green
+Write-Host "  Stratum work source set to local node." -ForegroundColor Green
 Write-Host ""
 
 # ── Launch Stratum Proxy ──────────────────────────────────────────────────────
 Write-Host "Launching Stratum Proxy on port $StratumPort..." -ForegroundColor Yellow
-$stratumArgs = "--node `"http://127.0.0.1:$RpcPort`" --stratum `"0.0.0.0:$StratumPort`" --dashboard `"0.0.0.0:$DashboardPort`" --interval 500ms --etherbase `"$Etherbase`""
+$stratumArgs = "--node `"$StratumNodeUrl`" --stratum `"0.0.0.0:$StratumPort`" --dashboard `"0.0.0.0:$DashboardPort`" --interval 500ms --etherbase `"$Etherbase`""
 Start-Process -FilePath $StratumExe -ArgumentList $stratumArgs -WindowStyle Normal
 Start-Sleep -Seconds 2
 Write-Host "  Dashboard: http://127.0.0.1:$DashboardPort" -ForegroundColor Cyan
