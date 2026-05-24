@@ -355,53 +355,21 @@ ipcMain.handle('send-tx', async (_, { privateKey, to, amount, gasPrice }) => {
       gasPrice: ethers.parseUnits(gasPrice || '0.5', 'gwei'),
       chainId: CHAIN_ID,
     });
-    // Return immediately after broadcast so UI doesn't look stuck on "Signing".
-    return { success: true, hash: tx.hash, status: 'broadcast' };
+    await tx.wait(1);
+    return { success: true, hash: tx.hash };
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
 
-// Get transaction history for an address by scanning chain blocks.
-ipcMain.handle('get-tx-history', async (_, { address, limit = 200 }) => {
+// Get transaction history (last 10 blocks)
+ipcMain.handle('get-tx-history', async (_, { address }) => {
   try {
-    if (!address) throw new Error('No address provided');
-
-    const needle = String(address).toLowerCase();
-    const latestHex = await rpcCallRead('eth_blockNumber', []);
-    let blockNum = parseInt(latestHex, 16);
-    if (!Number.isFinite(blockNum) || blockNum < 0) {
-      throw new Error('Unable to read latest block');
-    }
-
-    const txs = [];
-    for (let n = blockNum; n >= 0; n -= 1) {
-      if (txs.length >= limit) break;
-      const blockHex = '0x' + n.toString(16);
-      const block = await rpcCallRead('eth_getBlockByNumber', [blockHex, true]);
-      if (!block || !Array.isArray(block.transactions)) continue;
-
-      for (const tx of block.transactions) {
-        const from = String(tx.from || '').toLowerCase();
-        const to = tx.to ? String(tx.to).toLowerCase() : '';
-        if (from !== needle && to !== needle) continue;
-
-        const direction = to === needle ? 'in' : 'out';
-        txs.push({
-          hash: tx.hash,
-          blockNumber: parseInt(tx.blockNumber || blockHex, 16),
-          timestamp: parseInt(block.timestamp || '0x0', 16),
-          from: tx.from || '',
-          to: tx.to || '',
-          value: ethers.formatEther(tx.value || '0x0'),
-          direction,
-        });
-
-        if (txs.length >= limit) break;
-      }
-    }
-
-    return { success: true, txs };
+    if (!provider) tryConnectProvider();
+    const blockNum = await provider.getBlockNumber();
+    const from = Math.max(0, blockNum - 1000);
+    const logs = await provider.getLogs({ fromBlock: from, toBlock: blockNum });
+    return { success: true, logs: logs.slice(0, 20) };
   } catch (e) {
     return { success: false, error: e.message };
   }

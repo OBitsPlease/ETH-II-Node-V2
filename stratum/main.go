@@ -93,23 +93,11 @@ func getWork() ([4]string, error) {
 func submitWork(nonce, header, mix string) (bool, error) {
 	raw, err := rpcCall("ethash_submitWork", []interface{}{nonce, header, mix})
 	if err != nil {
-		atomic.AddInt64(&totalSubmitRPCError, 1)
 		return false, err
 	}
 	var ok bool
 	json.Unmarshal(raw, &ok)
-	if !ok {
-		atomic.AddInt64(&totalSubmitFalse, 1)
-	}
 	return ok, nil
-}
-
-func shortHex(v string) string {
-	v = strings.TrimSpace(v)
-	if len(v) <= 18 {
-		return v
-	}
-	return v[:18] + "..."
 }
 
 // ─── Work broadcaster ────────────────────────────────────────────────────────
@@ -168,15 +156,10 @@ func (wb *WorkBroadcaster) getCurrent() WorkUpdate {
 // ─── Global counters ─────────────────────────────────────────────────────────
 
 var (
-	totalAccepted          int64
-	totalRejected          int64
-	totalConnected         int64
-	startTime              = time.Now()
-	totalMiningSubmit      int64
-	totalEthSubmitWork     int64
-	totalStaleHeaderSubmit int64
-	totalSubmitRPCError    int64
-	totalSubmitFalse       int64
+	totalAccepted  int64
+	totalRejected  int64
+	totalConnected int64
+	startTime      = time.Now()
 )
 
 // ─── Network stats ───────────────────────────────────────────────────────────
@@ -338,14 +321,6 @@ var (
 	activeMiners = map[int64]*MinerInfo{}
 )
 
-func getManualHashrateOverride(address, worker, label string) float64 {
-	// Disabled: hardcoded hashrate overrides can mask real miner throughput.
-	_ = address
-	_ = worker
-	_ = label
-	return 0
-}
-
 func registerMiner(id int64) {
 	minersMu.Lock()
 	activeMiners[id] = &MinerInfo{ID: id, ConnectedAt: time.Now(), LastSeen: time.Now()}
@@ -494,6 +469,7 @@ func countHistoricalPoolBlockRecords(minerAddress string) ([]BlockRecord, error)
 			})
 		}
 	}
+
 	return blocks, nil
 }
 
@@ -597,18 +573,6 @@ func fetchEtherbase() {
 		log.Printf("[pool] Etherbase (reward address): %s", *etherbaseFlag)
 		return
 	}
-
-	payoutCfgMu.RLock()
-	savedAddress := strings.TrimSpace(payoutCfg.MiningAddress)
-	payoutCfgMu.RUnlock()
-	if savedAddress != "" {
-		poolEtherbaseMu.Lock()
-		poolEtherbase = savedAddress
-		poolEtherbaseMu.Unlock()
-		log.Printf("[pool] Etherbase (reward address) from payout.json: %s", savedAddress)
-		return
-	}
-
 	for {
 		raw, err := rpcCall("eth_coinbase", nil)
 		if err == nil {
@@ -956,6 +920,13 @@ func estimateWorkerHashrate(worker string, window time.Duration) float64 {
 	sharesPerSecond := float64(count) / elapsed
 	est := (sharesPerSecond * difficulty) / 1e6 // MH/s
 
+	// Keep estimates within sane bounds relative to current network hashrate.
+	netStatsMu.RLock()
+	netHR := netStats.NetworkHR
+	netStatsMu.RUnlock()
+	if netHR > 0 && est > netHR*1.2 {
+		est = netHR * 1.2
+	}
 	return est
 }
 
@@ -1149,16 +1120,10 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 			}
 
 		case "mining.submit":
-			atomic.AddInt64(&totalMiningSubmit, 1)
 			var params []string
 			json.Unmarshal(msg.Params, &params)
 			if len(params) >= 5 {
 				nonce, header, mix := params[2], params[3], params[4]
-				current := wb.getCurrent()
-				if current.HeaderHash != "" && !strings.EqualFold(header, current.HeaderHash) {
-					atomic.AddInt64(&totalStaleHeaderSubmit, 1)
-					log.Printf("    [diag] stale mining.submit header from %s: submit=%s current=%s height=%s", m.workerID, shortHex(header), shortHex(current.HeaderHash), current.Height)
-				}
 				ok, err := submitWork(nonce, header, mix)
 				if err != nil || !ok {
 					incMinerRejected(subID)
@@ -1205,17 +1170,11 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 			}
 
 		case "eth_submitWork":
-			atomic.AddInt64(&totalEthSubmitWork, 1)
 			// Params: [nonce, headerHash, mixDigest]
 			var params []string
 			json.Unmarshal(msg.Params, &params)
 			if len(params) >= 3 {
 				nonce, header, mix := params[0], params[1], params[2]
-				current := wb.getCurrent()
-				if current.HeaderHash != "" && !strings.EqualFold(header, current.HeaderHash) {
-					atomic.AddInt64(&totalStaleHeaderSubmit, 1)
-					log.Printf("    [diag] stale eth_submitWork header from %s: submit=%s current=%s height=%s", m.workerID, shortHex(header), shortHex(current.HeaderHash), current.Height)
-				}
 				ok, err := submitWork(nonce, header, mix)
 				if err != nil || !ok {
 					incMinerRejected(subID)
@@ -1330,43 +1289,6 @@ func startDashboard(addr string) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		json.NewEncoder(w).Encode(data)
-	})
-
-	mux.HandleFunc("/api/diag/submissions", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		work, err := getWork()
-		currentHeader := ""
-		currentHeight := ""
-		currentSeed := ""
-		if err == nil {
-			currentHeader = work[0]
-			currentSeed = work[1]
-			currentHeight = work[3]
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"now": time.Now().UTC().Format(time.RFC3339),
-			"workError": func() string {
-				if err != nil {
-					return err.Error()
-				}
-				return ""
-			}(),
-			"work": map[string]interface{}{
-				"header": currentHeader,
-				"height": currentHeight,
-				"seed":   currentSeed,
-			},
-			"submissions": map[string]interface{}{
-				"miningSubmit":  atomic.LoadInt64(&totalMiningSubmit),
-				"ethSubmitWork": atomic.LoadInt64(&totalEthSubmitWork),
-				"staleHeader":   atomic.LoadInt64(&totalStaleHeaderSubmit),
-				"rpcErrors":     atomic.LoadInt64(&totalSubmitRPCError),
-				"rpcFalse":      atomic.LoadInt64(&totalSubmitFalse),
-				"accepted":      atomic.LoadInt64(&totalAccepted),
-				"rejected":      atomic.LoadInt64(&totalRejected),
-			},
-		})
 	})
 
 	mux.HandleFunc("/api/chain/info", func(w http.ResponseWriter, r *http.Request) {
@@ -1557,15 +1479,11 @@ func startDashboard(addr string) {
 			workerLabelsMu.RLock()
 			label := workerLabels[m.Worker]
 			workerLabelsMu.RUnlock()
-			overrideHR := getManualHashrateOverride(m.Address, m.Worker, label)
 			reported := m.Hashrate
 			estimated := 0.0
 			effective := reported
 			source := "reported"
-			if overrideHR > 0 {
-				effective = overrideHR
-				source = "manual-override"
-			} else if reported <= 0 {
+			if reported <= 0 {
 				source = "none"
 				if time.Since(m.LastSeen) < 2*time.Minute {
 					estimated = estimateWorkerHashrate(m.Worker, 5*time.Minute)

@@ -146,9 +146,6 @@
         <a class="nav-item" data-view="view-receive">
           <span class="nav-icon">↓</span> Receive
         </a>
-        <a class="nav-item" data-view="view-history">
-          <span class="nav-icon">☰</span> History
-        </a>
         <a class="nav-item" data-view="view-node">
           <span class="nav-icon">⬡</span> Node
         </a>
@@ -241,34 +238,6 @@
         </div>
       </div>
 
-      <!-- History view -->
-      <div id="view-history" class="dash-view">
-        <h2 class="view-title">Transaction History</h2>
-        <div class="history-controls">
-          <button class="btn btn-secondary history-filter active" data-filter="all">All</button>
-          <button class="btn btn-secondary history-filter" data-filter="in">Incoming</button>
-          <button class="btn btn-secondary history-filter" data-filter="out">Outgoing</button>
-          <button class="btn btn-outline" id="btn-refresh-history">⟳ Refresh</button>
-        </div>
-        <div id="history-status" class="status-msg loading hidden"></div>
-        <div class="history-table-wrap">
-          <table class="history-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Counterparty</th>
-                <th>Block</th>
-                <th>Hash</th>
-              </tr>
-            </thead>
-            <tbody id="history-tbody">
-              <tr><td colspan="5" class="mono small">No transaction history loaded yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <!-- Node view -->
       <div id="view-node" class="dash-view">
         <h2 class="view-title">Node Status</h2>
@@ -291,7 +260,7 @@
           </div>
         </div>
         <div class="section-title">Start Node Command</div>
-        <div class="code-block">ethii.exe --datadir ".\data" --networkid 2048 --http --http.port 8545</div>
+        <div class="code-block">ethii.exe --datadir ".\data" --networkid 2048 --http --http.port 8545 --miner.etherbase YOUR_ADDRESS</div>
         <button class="btn btn-outline" id="btn-refresh-node">⟳ Refresh Status</button>
       </div>
 

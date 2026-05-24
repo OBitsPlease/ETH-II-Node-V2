@@ -8,17 +8,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SuiteRepo = 'OBitsPlease/ETH-II-Solo-Miner-Suite'
-$WalletRepo = 'OBitsPlease/ETH-II-Wallet'
+$SuiteRepo = 'OBitsPlease/ethii-miner-suite'
+$ApiBase = "https://api.github.com/repos/$SuiteRepo"
 $Headers = @{ 'User-Agent' = 'ETHII-Updater' }
-
-if ($Mode -eq 'auto') {
-  $NonInteractive = $true
-  if (-not $SkipWallet) {
-    # In hidden auto mode, never force wallet installer interactions.
-    $SkipWallet = $true
-  }
-}
 
 function Normalize-Version([string]$v) {
   if (-not $v) { return '0.0.0' }
@@ -36,16 +28,6 @@ function Get-LatestReleaseByPattern([array]$releases, [string]$pattern) {
     Where-Object { $_.tag_name -match $pattern -and -not $_.prerelease -and -not $_.draft } |
     Sort-Object -Property published_at -Descending |
     Select-Object -First 1
-}
-
-function Get-ReleasesSafe([string]$repoName, [string]$label) {
-  $apiBase = "https://api.github.com/repos/$repoName"
-  try {
-    return @(Invoke-RestMethod -Uri "$apiBase/releases" -Headers $Headers)
-  } catch {
-    Write-Host "  WARNING: Could not read $label releases ($repoName): $($_.Exception.Message)" -ForegroundColor Yellow
-    return @()
-  }
 }
 
 function Get-LocalWalletVersion {
@@ -88,25 +70,9 @@ function Save-LocalSuiteVersion([string]$tag) {
   Set-Content -Path $stateFile -Value $tag -Encoding ASCII -NoNewline
 }
 
-function Resolve-BackupRoot {
-  $candidates = @(
-    (Join-Path $RootDir 'BACKUPS\UPDATER'),
-    (Join-Path $env:LOCALAPPDATA 'ETHII\UPDATER')
-  )
-
-  foreach ($candidate in $candidates) {
-    try {
-      New-Item -ItemType Directory -Path $candidate -Force -ErrorAction Stop | Out-Null
-      return $candidate
-    } catch { }
-  }
-
-  throw 'Could not create any writable updater backup directory.'
-}
-
 function New-PreUpdateBackup {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-  $backupRoot = Resolve-BackupRoot
+  $backupRoot = Join-Path $RootDir 'BACKUPS\UPDATER'
   $backupDir = Join-Path $backupRoot ("PRE-UPDATE-" + $stamp)
 
   New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
@@ -230,11 +196,10 @@ function Apply-WalletUpdate([object]$walletRelease) {
 
 try {
   Write-Host 'Checking GitHub releases for updates...' -ForegroundColor Cyan
-  $suiteReleases = if ($SkipSuite) { @() } else { Get-ReleasesSafe -repoName $SuiteRepo -label 'suite' }
-  $walletReleases = if ($SkipWallet) { @() } else { Get-ReleasesSafe -repoName $WalletRepo -label 'wallet' }
+  $releases = Invoke-RestMethod -Uri "$ApiBase/releases" -Headers $Headers
 
-  $latestSuite = if ($SkipSuite) { $null } else { Get-LatestReleaseByPattern -releases $suiteReleases -pattern '^v\d+\.\d+\.\d+$' }
-  $latestWallet = if ($SkipWallet) { $null } else { Get-LatestReleaseByPattern -releases $walletReleases -pattern '^wallet-v\d+\.\d+\.\d+$' }
+  $latestSuite = if ($SkipSuite) { $null } else { Get-LatestReleaseByPattern -releases $releases -pattern '^v\d+\.\d+\.\d+$' }
+  $latestWallet = if ($SkipWallet) { $null } else { Get-LatestReleaseByPattern -releases $releases -pattern '^wallet-v\d+\.\d+\.\d+$' }
 
   $localSuiteVersion = Get-LocalSuiteVersion
   $localWalletVersion = Get-LocalWalletVersion
@@ -249,11 +214,8 @@ try {
     $walletNeedsUpdate = (Compare-Version $localWalletVersion (Normalize-Version $latestWallet.tag_name)) -lt 0
   }
 
-  $suiteLatestTag = if ($latestSuite) { $latestSuite.tag_name } else { 'n/a' }
-  $walletLatestTag = if ($latestWallet) { $latestWallet.tag_name } else { 'n/a' }
-
-  Write-Host "  Suite local/latest: $localSuiteVersion / $suiteLatestTag" -ForegroundColor Gray
-  Write-Host "  Wallet local/latest: $localWalletVersion / $walletLatestTag" -ForegroundColor Gray
+  Write-Host "  Suite local/latest: $localSuiteVersion / $($latestSuite.tag_name)" -ForegroundColor Gray
+  Write-Host "  Wallet local/latest: $localWalletVersion / $($latestWallet.tag_name)" -ForegroundColor Gray
 
   if (-not $suiteNeedsUpdate -and -not $walletNeedsUpdate) {
     Write-Host 'No updates available.' -ForegroundColor Green
@@ -279,12 +241,8 @@ try {
   }
 
   Write-Host 'Creating pre-update backup...' -ForegroundColor Yellow
-  try {
-    $backupDir = New-PreUpdateBackup
-    Write-Host "  Backup saved: $backupDir" -ForegroundColor Green
-  } catch {
-    Write-Host ("  WARNING: backup skipped: " + $_.Exception.Message) -ForegroundColor Yellow
-  }
+  $backupDir = New-PreUpdateBackup
+  Write-Host "  Backup saved: $backupDir" -ForegroundColor Green
 
   $suiteApplied = $false
   $walletApplied = $false
@@ -301,6 +259,6 @@ try {
   exit 0
 }
 catch {
-  Write-Host ("Updater warning: " + $_.Exception.Message) -ForegroundColor Yellow
-  exit 0
+  Write-Host ("Updater error: " + $_.Exception.Message) -ForegroundColor Red
+  exit 1
 }
