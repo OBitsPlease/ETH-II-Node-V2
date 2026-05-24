@@ -21,6 +21,16 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Validate tag matches wallet version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pkgVersion = node -p "require('./wallet/package.json').version"
+          $tagVersion = '${{ github.ref_name }}' -replace '^wallet-v', ''
+          if ($pkgVersion -ne $tagVersion) {
+            throw "Tag/version mismatch: tag=$tagVersion wallet/package.json=$pkgVersion"
+          }
+
       - name: Build wallet-only installer
         run: |
           cd wallet
