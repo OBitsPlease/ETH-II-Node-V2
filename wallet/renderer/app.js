@@ -4,6 +4,8 @@ const PUBLIC_RPC_URL = 'https://ethii.net/rpc';
 
 let currentAddress = null;
 let currentPrivateKey = null;
+let txHistory = [];
+let txFilter = 'all';
 
 // Update MetaMask RPC chip: show public RPC endpoint.
 (function initMetaMaskRpc() {
@@ -70,6 +72,64 @@ function showView(id) {
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.view === id);
   });
+  if (id === 'view-history') {
+    refreshTxHistory();
+  }
+}
+
+function shortHash(hash) {
+  if (!hash || hash.length < 14) return hash || '—';
+  return `${hash.slice(0, 10)}…${hash.slice(-6)}`;
+}
+
+function renderTxHistory() {
+  const tbody = document.getElementById('history-tbody');
+  if (!tbody) return;
+
+  const items = txHistory.filter((tx) => txFilter === 'all' || tx.direction === txFilter);
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="mono small">No matching transactions found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map((tx) => {
+    const counterparty = tx.direction === 'in' ? tx.from : tx.to;
+    const dirClass = tx.direction === 'in' ? 'tx-dir-in' : 'tx-dir-out';
+    const dirText = tx.direction === 'in' ? 'IN' : 'OUT';
+    return `<tr>
+      <td class="${dirClass}">${dirText}</td>
+      <td>${Number(tx.value || 0).toFixed(6)} ETHII</td>
+      <td class="mono">${truncateAddress(counterparty || '—')}</td>
+      <td>${tx.blockNumber ?? '—'}</td>
+      <td class="mono" title="${tx.hash || ''}">${shortHash(tx.hash)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function refreshTxHistory() {
+  if (!currentAddress) return;
+  const status = document.getElementById('history-status');
+  if (status) {
+    status.textContent = 'Loading transaction history...';
+    status.className = 'status-msg loading';
+    status.classList.remove('hidden');
+  }
+
+  const result = await window.ethii.getTxHistory({ address: currentAddress, limit: 300 });
+  if (!result.success) {
+    if (status) {
+      status.textContent = `History load failed: ${result.error}`;
+      status.className = 'status-msg error';
+    }
+    return;
+  }
+
+  txHistory = Array.isArray(result.txs) ? result.txs : [];
+  renderTxHistory();
+  if (status) {
+    status.textContent = `Loaded ${txHistory.length} transaction(s).`;
+    status.className = 'status-msg success';
+  }
 }
 
 // ---- Window controls ----
@@ -171,6 +231,7 @@ function openDashboard() {
   showScreen('screen-dashboard');
   showView('view-wallet');
   refreshBalance({ showSpinner: true });
+  refreshTxHistory();
   refreshNodeStatus();
   // Update stratum URL with current address
   const stratumEl = document.getElementById('stratum-url');
@@ -233,10 +294,12 @@ document.getElementById('btn-send').addEventListener('click', async () => {
   const result = await window.ethii.sendTx({ privateKey: pk, to, amount, gasPrice: gasPrice || '0.5' });
   document.getElementById('btn-send').textContent = 'Send Transaction →';
   if (result.success) {
-    showStatus('send-status', `✔ Sent! TX: ${result.hash}`, 'success');
+    showStatus('send-status', `✔ Broadcasted! TX: ${result.hash}`, 'success');
     document.getElementById('send-to').value = '';
     document.getElementById('send-amount').value = '';
+    document.getElementById('send-password').value = '';
     setTimeout(refreshBalance, 2000);
+    setTimeout(refreshTxHistory, 3000);
   } else {
     showStatus('send-status', result.error, 'error');
   }
@@ -357,6 +420,17 @@ document.querySelectorAll('[data-view]').forEach(btn => {
     btn.addEventListener('click', () => showView(btn.dataset.view));
   }
 });
+
+document.querySelectorAll('.history-filter').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    txFilter = btn.dataset.filter;
+    document.querySelectorAll('.history-filter').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderTxHistory();
+  });
+});
+
+document.getElementById('btn-refresh-history')?.addEventListener('click', refreshTxHistory);
 
 // ---- Copy buttons ----
 document.querySelectorAll('.btn-copy').forEach(btn => {

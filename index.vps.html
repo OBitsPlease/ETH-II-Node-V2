@@ -779,11 +779,6 @@
             transition: all 0.3s;
         }
 
-        a.tool-card {
-            text-decoration: none;
-            color: inherit;
-        }
-
         .tool-card:hover {
             border-color: #f5c518;
             background: rgba(245, 197, 24, 0.05);
@@ -929,6 +924,210 @@
                 grid-template-columns: 1fr;
             }
         }
+    
+        /* Mobile hardening overrides (safe additive) */
+         (max-width: 768px) {
+            html, body {
+                scroll-snap-type: none;
+            }
+
+            header {
+                padding: 14px 16px;
+            }
+
+            .logo {
+                font-size: 16px;
+                letter-spacing: 1px;
+            }
+
+            #nav-dots,
+            #section-counter {
+                display: none !important;
+            }
+
+            .panel {
+                height: auto;
+                min-height: 100vh;
+                padding: 90px 0 36px;
+                align-items: flex-start;
+            }
+
+            .hero-container {
+                height: auto;
+                padding: 0 18px;
+                gap: 24px;
+            }
+
+            .hero-left::before {
+                display: none;
+            }
+
+            .steps-buttons {
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+
+            .config-panel {
+                padding: 18px;
+            }
+
+            .config-row {
+                grid-template-columns: 1fr;
+                gap: 6px;
+                padding: 10px 0;
+            }
+
+            .config-value {
+                font-size: 13px;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+
+            .metamask-cta {
+                padding: 26px 18px;
+            }
+
+            .metamask-cta h3 {
+                font-size: 24px;
+                line-height: 1.2;
+            }
+        }
+
+    
+        /* Autosize responsive tune v2 */
+        html {
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+
+         (max-width: 1024px) {
+            .section-container {
+                padding: 72px 24px;
+            }
+
+            .section-title {
+                font-size: clamp(30px, 8vw, 46px);
+            }
+
+            .hero-line1,
+            .hero-line2 {
+                font-size: clamp(42px, 11vw, 72px);
+                line-height: 0.95;
+            }
+
+            .hero-descriptor {
+                font-size: 16px;
+                max-width: 100%;
+            }
+
+            .hero-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 14px;
+            }
+
+            .stat-number {
+                font-size: clamp(18px, 5.5vw, 24px);
+            }
+        }
+
+         (max-width: 768px) {
+            .section-container {
+                padding: 64px 16px;
+            }
+
+            .section-title {
+                font-size: clamp(26px, 9vw, 40px);
+                margin-bottom: 24px;
+            }
+
+            .section-eyebrow {
+                font-size: 10px;
+                letter-spacing: 1.5px;
+                margin-bottom: 10px;
+            }
+
+            .hero-line1,
+            .hero-line2 {
+                font-size: clamp(34px, 12vw, 56px);
+            }
+
+            .hero-eyebrow {
+                font-size: 11px;
+                letter-spacing: 1.4px;
+            }
+
+            .hero-descriptor {
+                font-size: 15px;
+                line-height: 1.55;
+            }
+
+            .cta-group {
+                flex-direction: column;
+                gap: 10px;
+                margin-bottom: 26px;
+            }
+
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+                padding: 12px 16px;
+                font-size: 11px;
+                text-align: center;
+            }
+
+            .step-number {
+                font-size: 48px;
+                margin-bottom: 12px;
+            }
+
+            .step-title {
+                font-size: 15px;
+                margin-bottom: 12px;
+            }
+
+            .step-description {
+                font-size: 13px;
+                line-height: 1.6;
+            }
+
+            .tool-name {
+                font-size: 14px;
+            }
+
+            .config-title {
+                font-size: 14px;
+                letter-spacing: 1.3px;
+            }
+        }
+
+         (max-width: 480px) {
+            .section-container {
+                padding: 56px 12px;
+            }
+
+            .hero-container {
+                padding: 0 12px;
+            }
+
+            .hero-line1,
+            .hero-line2 {
+                font-size: clamp(28px, 11.5vw, 42px);
+            }
+
+            .hero-stats {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+
+            .stat-label {
+                font-size: 9px;
+            }
+
+            .tool-card {
+                padding: 20px 16px;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -946,6 +1145,7 @@
             <a href="#section-2">WHY</a>
             <a href="#section-3">STATS</a>
             <a href="#section-4">MINE</a>
+            <a href="explorer.html">EXPLORER</a>
             <a href="#section-5">EXPLORE</a>
             <a href="#section-6">CHAIN</a>
         </nav>
@@ -1113,43 +1313,41 @@
         </div>
     </section>
 
-    <!-- ===== SECTION 4: MINE IN 3 STEPS ===== -->
-    <section class="panel" id="section-4">
-        <div class="pc">
-            <div class="section-container">
-                <div class="section-header">
-                    <div class="section-eyebrow">// OPERATIONS</div>
-                    <h2 class="section-title">MINE IN 3 STEPS</h2>
+    <!-- ===== SECTION 4: MINE ETH II ===== -->
+<section class="panel" id="section-4">
+    <div class="pc">
+        <div class="section-container">
+            <div class="section-header">
+                <div class="section-eyebrow">// OPERATIONS</div>
+                <h2 class="section-title">MINE ETH II</h2>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <h3 class="step-title">DOWNLOAD SOLO MINER SUITE</h3>
+                    <div class="code-block"><a href="https://github.com/OBitsPlease/LC2-DOGE2-Solo-Pools" target="_blank" rel="noreferrer" style="color:inherit;text-decoration:none">https://github.com/OBitsPlease/LC2-DOGE2-Solo-Pools</a></div>
                 </div>
-                <div class="steps-grid">
-                    <div class="step-card">
-                        <div class="step-number">1</div>
-                        <h3 class= step-title>Download Solo Miner Suite, and your node helps support the nextwork.</h3>
-                        <p class=step-description>Download the ETHII Solo Miner Suite from GitHub.</p>
-                        <div class=code-block>https://github.com/OBitsPlease/ethii-miner-suite</div>
-                    </div>
-                    <div class="step-card">
-                        <div class="step-number">2</div>
-                        <h3 class="step-title">Point at Pool</h3>
-                        <p class="step-description">Connect to your mining pool or set up solo mining with a full node.</p>
-                        <div class="code-block">stratum+tcp://pool.ethii.net:3333</div>
-                    </div>
-                    <div class="step-card">
-                        <div class="step-number">3</div>
-                        <h3 class="step-title">Start Mining</h3>
-                        <p class="step-description">Execute the miner and watch ETH II rewards flow to your wallet in real time.</p>
-                        <div class="code-block">./t-rex -a ethash -o stratum+tcp://pool:3333</div>
-                    </div>
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <h3 class="step-title">GPU MINEABLE</h3>
+                    <div class="code-block">Rigel, T-Rex, SRB</div>
                 </div>
-                <div class="steps-buttons">
-                    <button class="btn-primary" onclick="location.href='mine.html'">GET STARTED</button>
-                    <button class="btn-secondary" onclick="location.href='pool.html'">POOL LIST</button>
+                <div class="step-card">
+                    <div class="step-number">3</div>
+                    <h3 class="step-title">ASIC MINEABLE</h3>
+                    <div class="code-block">Jasminer X16Q Pro</div>
                 </div>
             </div>
+            <div class="steps-buttons">
+                <button class="btn-primary" onclick="window.open('https://github.com/OBitsPlease/LC2-DOGE2-Solo-Pools', '_blank')">GET STARTED</button>
+                <button class="btn-secondary" onclick="location.href='mine.html'">MINING GUIDE</button>
+            </div>
         </div>
-    </section>
+    </div>
+</section>
 
-    <!-- ===== SECTION 5: EXPLORE ===== -->
+<!-- ===== SECTION 5: EXPLORE ===== -->
+
     <section class="panel" id="section-5">
         <div class="pc">
             <div class="section-container">
@@ -1158,30 +1356,30 @@
                     <h2 class="section-title">EXPLORE</h2>
                 </div>
                 <div class="tools-grid">
-                    <a class="tool-card" href="explorer.html">
+                    <div class="tool-card">
                         <span class="tool-name">Block Explorer</span>
                         <span class="tool-arrow">→</span>
-                    </a>
-                    <a class="tool-card" href="pool.html">
-                        <span class="tool-name">Pool Dashboard</span>
+                    </div>
+                    <div class="tool-card">
+                        <span class="tool-name">Mining Guide</span>
                         <span class="tool-arrow">→</span>
-                    </a>
-                    <a class="tool-card" href="https://github.com/OBitsPlease/ethii-miner-suite/blob/main/README.md" target="_blank" rel="noreferrer">
+                    </div>
+                    <div class="tool-card">
                         <span class="tool-name">Documentation</span>
                         <span class="tool-arrow">→</span>
-                    </a>
-                    <a class="tool-card" href="#" title="Discord link coming soon">
+                    </div>
+                    <div class="tool-card">
                         <span class="tool-name">Community Discord</span>
                         <span class="tool-arrow">→</span>
-                    </a>
-                    <a class="tool-card" href="https://github.com/OBitsPlease" target="_blank" rel="noreferrer">
+                    </div>
+                    <div class="tool-card">
                         <span class="tool-name">GitHub Repos</span>
                         <span class="tool-arrow">→</span>
-                    </a>
-                    <a class="tool-card" href="mine.html">
+                    </div>
+                    <div class="tool-card">
                         <span class="tool-name">Mining Guides</span>
                         <span class="tool-arrow">→</span>
-                    </a>
+                    </div>
                 </div>
 
                 <div class="config-panel">
@@ -1196,11 +1394,15 @@
                     </div>
                     <div class="config-row">
                         <div class="config-key">RPC Endpoint</div>
-                        <div class="config-value">http://91.99.231.217:8545</div>
+                        <div class="config-value">https://www.ethii.net/rpc</div>
                     </div>
                     <div class="config-row">
-                        <div class="config-key">Pool Address</div>
-                        <div class="config-value">stratum+tcp://91.99.231.217:3333</div>
+                        <div class="config-key">Stratum Address</div>
+                        <div class="config-value">stratum+tcp://www.ethii.net:3333</div>
+                    </div>
+                    <div class="config-row">
+                        <div class="config-key">Explorer</div>
+                        <div class="config-value">https://www.ethii.net/explorer.html</div>
                     </div>
                 </div>
 
@@ -1356,9 +1558,9 @@
                 // document.getElementById('s-mn').textContent = data.miners;
 
                 // Demo data
-                  const live = await fetch("/api/stats").then(r => r.json()).catch(() => null); document.getElementById("s-blk").textContent = (live && live.network && Number(live.network.blockHeight) > 0) ? ("#" + Number(live.network.blockHeight).toLocaleString()) : "—";
-                  document.getElementById("s-hr").textContent = (live && live.pool && typeof live.pool.hashrate === "number") ? ((live.pool.hashrate >= 1e12) ? ((live.pool.hashrate/1e12).toFixed(2) + " TH/s") : (live.pool.hashrate >= 1e9) ? ((live.pool.hashrate/1e9).toFixed(2) + " GH/s") : (live.pool.hashrate >= 1e6) ? ((live.pool.hashrate/1e6).toFixed(2) + " MH/s") : (live.pool.hashrate >= 1e3) ? ((live.pool.hashrate/1e3).toFixed(2) + " KH/s") : (live.pool.hashrate + " H/s")) : "—";
-                  document.getElementById("s-mn").textContent = (live && live.pool && typeof live.pool.miners === "number") ? Number(live.pool.miners).toLocaleString() : "—";
+                document.getElementById('s-blk').textContent = '#2,847,291';
+                document.getElementById('s-hr').textContent = '1.2 TH/s';
+                document.getElementById('s-mn').textContent = '3,547';
             } catch (error) {
                 console.error('Error fetching live data:', error);
             }
@@ -1740,6 +1942,5 @@
   }
 })();
 </script>
-<script src= assets/metamask-cta.js></script>
 </body>
 </html>
