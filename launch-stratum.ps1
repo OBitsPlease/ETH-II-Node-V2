@@ -17,6 +17,7 @@ if (Test-Path $UpdaterScript) {
 
 $RpcPort       = 8545
 $StratumPort   = 3335
+$A10CompatPort = 3336
 $DashboardPort = 8082
 
 $StratumExe = Join-Path $ScriptDir "stratum\stratum.exe"
@@ -30,7 +31,7 @@ if (-not (Test-Path $StratumExe)) {
 }
 
 # Free fixed ports if already in use
-foreach ($port in @($StratumPort, $DashboardPort)) {
+foreach ($port in @($StratumPort, $A10CompatPort, $DashboardPort)) {
     $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
     if ($conn) {
         $ownerPid = ($conn | Select-Object -First 1).OwningProcess
@@ -46,14 +47,20 @@ Set-Content -Path $portFile -Value $StratumPort -NoNewline
 
 Write-Host "  RPC Port      : $RpcPort"        -ForegroundColor Green
 Write-Host "  Stratum Port  : $StratumPort"    -ForegroundColor Green
+Write-Host "  A10 Port      : $A10CompatPort"  -ForegroundColor Green
 Write-Host "  Dashboard Port: $DashboardPort"  -ForegroundColor Green
+Write-Host ""
+Write-Host "PAYOUT WARNING:" -ForegroundColor Yellow
+Write-Host "  Rewards go to the wallet configured on this stratum host." -ForegroundColor Yellow
+Write-Host "  Worker/user values and port selection do not change payout destination." -ForegroundColor Yellow
+Write-Host "  Port $StratumPort = standard stratum, port $A10CompatPort = A10 compatibility." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Starting ETHII Stratum Proxy..." -ForegroundColor Cyan
 Write-Host "Dashboard will be at: http://127.0.0.1:$DashboardPort" -ForegroundColor Cyan
 Write-Host "Keep this window open. Press Ctrl+C to stop." -ForegroundColor Yellow
 Write-Host ""
 
-Start-Process -FilePath $StratumExe -ArgumentList "--node `"http://127.0.0.1:$RpcPort`" --stratum `"0.0.0.0:$StratumPort`" --dashboard `"0.0.0.0:$DashboardPort`"" -WindowStyle Normal -PassThru | Out-Null
+Start-Process -FilePath $StratumExe -ArgumentList "--node `"http://127.0.0.1:$RpcPort`" --stratum `"0.0.0.0:$StratumPort`" --a10-stratum `"0.0.0.0:$A10CompatPort`" --dashboard `"0.0.0.0:$DashboardPort`"" -WindowStyle Normal -PassThru | Out-Null
 Start-Sleep -Seconds 2
 Start-Process "http://127.0.0.1:$DashboardPort"
 

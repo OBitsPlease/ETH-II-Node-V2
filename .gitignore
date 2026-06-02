@@ -20,6 +20,21 @@ data/
 data-test/
 .vscode/
 
+# Runtime snapshots and local backup clutter
+BACKUPS/AUTO-LAUNCH/PRE-LAUNCH-*/
+BACKUPS/INVESTIGATION-*/
+BACKUPS/LOCAL-CHAIN-RESET-*/
+BACKUPS/SAVEPOINTS/
+BACKUPS/UPDATER/
+
+# Local runtime artifacts
+*.bak
+*~
+block_totals.json
+stratum/block_totals.json
+wallet/block_totals.json
+monitor-loop-asic-gpu.csv
+
 # Node
 node_modules/
 dist/

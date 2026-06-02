@@ -58,6 +58,11 @@ ETHII (ETH 2.0) is a proof-of-work Ethereum fork that keeps mining alive forever
 
 ## Solo Mining (your GPU, your node)
 
+Important payout rule:
+- Rewards are paid to the wallet configured on the stratum host you connect to.
+- Port choice does not choose payout wallet. Port choice only selects protocol/compat mode.
+- `3333` is standard stratum. `3336` is legacy A10 compatibility.
+
 Point your GPU miner at your own stratum:
 
 **PhoenixMiner:**
@@ -94,6 +99,10 @@ PhoenixMiner.exe -pool stratum+tcp://192.168.1.100:3333 -wal YOUR_ADDRESS -pass 
 ## Running a Public Mining Pool
 
 To allow anyone on the internet to mine ETHII on your pool:
+
+Important for pool operators and miners:
+- If miners connect to your host and port, block rewards are paid to your host's configured wallet.
+- Miner `-u` or `--user` values are treated as worker identity labels unless your stratum implementation explicitly supports per-miner payouts.
 
 1. Open port **3333** in your router (port forward to your mining PC)
 2. Share your public IP or domain: `stratum+tcp://YOUR_IP:3333`

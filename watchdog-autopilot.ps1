@@ -14,8 +14,14 @@ if ($Etherbase -eq "") {
 $NodeUrl = "http://127.0.0.1:8545"
 $StatsUrl = "http://127.0.0.1:8082/api/stats"
 $MinersUrl = "http://127.0.0.1:8082/api/miners"
-$PublicRpcUrl = "http://91.99.231.217:8545"
-$BootnodeEnode = "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
+$PrimaryRpcUrl = "http://87.99.142.128:8545"
+$SecondaryRpcUrl = "http://91.99.231.217:8545"
+$RemoteRpcCandidates = @($PrimaryRpcUrl, $SecondaryRpcUrl)
+$SeedEnodes = @(
+    "enode://05f7f1c669368d16829699b6e1ddffbd8a3fee08a1301cac33922ad05f56fd53aadbca02f326d6b1c863c560c9adf30a75b44d45e7448ebb41d9c47235204fdf@87.99.142.128:30303",
+    "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
+) | Select-Object -Unique
+$BootnodesArg = ($SeedEnodes -join ",")
 $AsicIp = "YOUR_ASIC_IP"
 $AsicBase = "http://$AsicIp"
 $LogFile = Join-Path $Root "watchdog-autopilot.log"
@@ -47,7 +53,7 @@ function Restart-Node {
     Get-Process -Name ethii -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 1
     $feeArg = if ($Etherbase) { " --miner.pending.feeRecipient $Etherbase" } else { "" }
-    Start-Process -FilePath $NodeExe -ArgumentList "--datadir `"$DataDir`" --networkid 2048 --gcmode archive --state.scheme hash --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3,miner,ethash,txpool,admin,debug --http.corsdomain * --http.vhosts * --port 30303 --bootnodes $BootnodeEnode$feeArg --verbosity 3 --miner.recommit 30s" -WindowStyle Normal
+    Start-Process -FilePath $NodeExe -ArgumentList "--datadir `"$DataDir`" --networkid 2048 --gcmode archive --state.scheme hash --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3,miner,ethash,txpool,admin,debug --http.corsdomain * --http.vhosts * --port 30303 --bootnodes $BootnodesArg$feeArg --verbosity 3 --miner.recommit 30s" -WindowStyle Normal
 }
 
 function Restart-Stratum {
@@ -74,13 +80,26 @@ function Get-Miners {
 }
 
 function Nudge-NodeSync {
-    try {
-        Invoke-RestMethod -Uri $NodeUrl -Method Post -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $BootnodeEnode + '"],"id":1}') -ContentType "application/json" -TimeoutSec 3 | Out-Null
-    } catch { }
+    foreach ($seed in $SeedEnodes) {
+        try {
+            Invoke-RestMethod -Uri $NodeUrl -Method Post -Body ('{"jsonrpc":"2.0","method":"admin_addPeer","params":["' + $seed + '"],"id":1}') -ContentType "application/json" -TimeoutSec 3 | Out-Null
+        } catch { }
+    }
 
     try {
         $localBlockHex = (Invoke-RestMethod -Uri $NodeUrl -Method Post -Body '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' -ContentType "application/json" -TimeoutSec 3).result
-        $remoteLatest = Invoke-RestMethod -Uri $PublicRpcUrl -Method Post -Body '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' -ContentType "application/json" -TimeoutSec 5
+        $remoteLatest = $null
+        foreach ($rpcUrl in $RemoteRpcCandidates) {
+            try {
+                $remoteLatest = Invoke-RestMethod -Uri $rpcUrl -Method Post -Body '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}' -ContentType "application/json" -TimeoutSec 5
+                if ($remoteLatest -and $remoteLatest.result) { break }
+            } catch {
+                $remoteLatest = $null
+            }
+        }
+        if (-not $remoteLatest -or -not $remoteLatest.result) {
+            throw "No remote RPC candidates responded"
+        }
         $remoteBlockHex = $remoteLatest.result.number
         $remoteHash = $remoteLatest.result.hash
         if ($localBlockHex -and $remoteBlockHex -and $remoteHash) {

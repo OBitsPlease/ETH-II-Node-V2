@@ -2,7 +2,8 @@
 # Starts: Node + Stratum Proxy + Wallet GUI
 
 param(
-  [string]$VpsHost = "91.99.231.217",
+  [string]$VpsHost = "87.99.142.128",
+  [string]$SecondaryVpsHost = "91.99.231.217",
   [string]$User = "root",
   [string]$KeyPath = "$env:USERPROFILE\.ssh\ethii_vps"
 )
@@ -236,14 +237,19 @@ if ($WalletRuntimeAvailable) {
 
 # ── Ensure firewall allows inbound connections on stratum and RPC ports ────────
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-$fwStratum = Get-NetFirewallRule -DisplayName "ETHII Stratum" -ErrorAction SilentlyContinue
-$fwRpc     = Get-NetFirewallRule -DisplayName "ETHII RPC"     -ErrorAction SilentlyContinue
-if (-not $fwStratum -or -not $fwRpc) {
+$fwStratum = Get-NetFirewallRule -DisplayName "ETHII Stratum"     -ErrorAction SilentlyContinue
+$fwStratumA10 = Get-NetFirewallRule -DisplayName "ETHII Stratum A10" -ErrorAction SilentlyContinue
+$fwRpc     = Get-NetFirewallRule -DisplayName "ETHII RPC"         -ErrorAction SilentlyContinue
+if (-not $fwStratum -or -not $fwStratumA10 -or -not $fwRpc) {
     if ($isAdmin) {
         if (-not $fwStratum) {
             New-NetFirewallRule -DisplayName "ETHII Stratum" -Direction Inbound -Protocol TCP -LocalPort 3335 -Action Allow -Profile Any | Out-Null
             Write-Host "  Firewall: opened port 3335 (Stratum)" -ForegroundColor Green
         }
+    if (-not $fwStratumA10) {
+      New-NetFirewallRule -DisplayName "ETHII Stratum A10" -Direction Inbound -Protocol TCP -LocalPort 3336 -Action Allow -Profile Any | Out-Null
+      Write-Host "  Firewall: opened port 3336 (Stratum A10)" -ForegroundColor Green
+    }
         if (-not $fwRpc) {
             New-NetFirewallRule -DisplayName "ETHII RPC" -Direction Inbound -Protocol TCP -LocalPort 8545 -Action Allow -Profile Any | Out-Null
             Write-Host "  Firewall: opened port 8545 (RPC)" -ForegroundColor Green
@@ -251,7 +257,7 @@ if (-not $fwStratum -or -not $fwRpc) {
     } else {
         Write-Host "  Firewall: adding rules requires elevation - launching elevated helper..." -ForegroundColor Yellow
         $tmpScript = [System.IO.Path]::GetTempFileName() + ".ps1"
-        $fwLines = "New-NetFirewallRule -DisplayName 'ETHII Stratum' -Direction Inbound -Protocol TCP -LocalPort 3335 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null`nNew-NetFirewallRule -DisplayName 'ETHII RPC' -Direction Inbound -Protocol TCP -LocalPort 8545 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null"
+    $fwLines = "New-NetFirewallRule -DisplayName 'ETHII Stratum' -Direction Inbound -Protocol TCP -LocalPort 3335 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null`nNew-NetFirewallRule -DisplayName 'ETHII Stratum A10' -Direction Inbound -Protocol TCP -LocalPort 3336 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null`nNew-NetFirewallRule -DisplayName 'ETHII RPC' -Direction Inbound -Protocol TCP -LocalPort 8545 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null"
         Set-Content -Path $tmpScript -Value $fwLines -Encoding UTF8
         Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$tmpScript`"" -Verb RunAs -Wait -ErrorAction SilentlyContinue
         Remove-Item $tmpScript -ErrorAction SilentlyContinue
@@ -422,14 +428,17 @@ function Find-FreePort([int[]]$candidates) {
 $RpcPort       = Find-FreePort @(8545..8555)
 $P2pPort       = Find-FreePort @(30303..30313)
 $StratumPort   = 3335   # Fixed - external miners (ASICs, GPUs) depend on this
+$A10CompatPort = 3336   # Fixed - optional compatibility endpoint for A10-class ASICs
 $DashboardPort = 8082   # Fixed - bookmarked URL stays consistent
-$BootnodeEnode = "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
-$BackupPeerEnode = "enode://27d014d0d66f332175ff7524f0f6fd6e877bc641cd2f0044d4d283dbd4ed134ba27e1ea6359543a024ceaf336a05ed1d5901e60643a7016ba018760d4df19d60@108.239.200.131:30303"
-$SeedEnodes = @($BootnodeEnode, $BackupPeerEnode) | Select-Object -Unique
+$PrimaryBootnodeEnode = "enode://05f7f1c669368d16829699b6e1ddffbd8a3fee08a1301cac33922ad05f56fd53aadbca02f326d6b1c863c560c9adf30a75b44d45e7448ebb41d9c47235204fdf@87.99.142.128:30303"
+$SecondaryBootnodeEnode = "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
+$BootnodeEnode = $PrimaryBootnodeEnode
+$SeedEnodes = @($PrimaryBootnodeEnode, $SecondaryBootnodeEnode) | Select-Object -Unique
 $KnownBadPeerEnodes = @(
   "enode://d3615e2943e55195251ec6c233b19ffbd14151cf93967d568fd6c87f98fc9c6f16f9934030dc85448411eb0f234cd308e1534c9035d31ca15dee00de07082e34@206.255.167.20:30303"
 ) | Select-Object -Unique
-$PublicRpcUrl = "http://91.99.231.217:8545"
+$PublicRpcUrl = "http://87.99.142.128:8545"
+$SecondaryPublicRpcUrl = "http://91.99.231.217:8545"
 
 # Ensure inbound P2P is open on the selected port so this node can accept peers.
 $fwP2pTcpName = "ETHII P2P TCP $P2pPort"
@@ -467,6 +476,7 @@ Write-Host "Scanning for available ports..." -ForegroundColor Yellow
 Write-Host "  RPC Port      : $RpcPort"        -ForegroundColor Green
 Write-Host "  P2P Port      : $P2pPort"        -ForegroundColor Green
 Write-Host "  Stratum Port  : $StratumPort"    -ForegroundColor Green
+Write-Host "  A10 Compat    : $A10CompatPort"  -ForegroundColor Green
 Write-Host "  Dashboard Port: $DashboardPort"  -ForegroundColor Green
 Write-Host ""
 
@@ -566,9 +576,12 @@ $info = @"
 
   IMPORTANT:
     - Use  ETHASH  algorithm
-    - For the username/wallet field, enter any short worker name
-      like  rig1  or  gpu2  or  asic1  (NOT your wallet address --
-      the server handles rewards automatically)
+    - Rewards are paid to the wallet configured on the stratum host
+      you connect to.
+    - Port selection does NOT choose payout wallet.
+      Port $StratumPort is standard stratum; port $A10CompatPort is A10 compatibility.
+    - The username/wallet field is used as worker identity in this setup
+      (for example: rig1, gpu2, asic1).
     - For the password field, enter  x
     - HiveOS users: set Pool/Host to ${LocalIP}:$StratumPort
       (no stratum+tcp:// in the Host field), Wallet/User to rig1,
@@ -583,6 +596,19 @@ $info = @"
   Use this address if your miner is a separate rig on your LAN:
 
     stratum+tcp://${LocalIP}:$StratumPort
+
+  ── INNOSILICON A10 PRO COMPATIBILITY ──────────────────────
+  If an A10 Pro connects but receives no jobs on $StratumPort,
+  use the A10 compatibility endpoint on port ${A10CompatPort}:
+
+    stratum+tcp://${LocalIP}:$A10CompatPort
+
+  This compatibility port keeps the normal $StratumPort behavior
+  unchanged for GPUs and ASICs that already work.
+
+  NOTE:
+    Choosing $StratumPort vs $A10CompatPort does not change payout destination.
+    The payout destination is controlled by the stratum host settings.
 
   ── OPTIONAL INTERNET TEST (PUBLIC/VPS) ────────────────────
   If you are testing from outside your LAN, use:
@@ -635,6 +661,7 @@ $info = @"
 
   Node RPC URL  : http://127.0.0.1:$RpcPort
   Stratum Port  : $StratumPort
+  A10 Compat    : $A10CompatPort
   P2P Port      : $P2pPort
   Dashboard     : http://127.0.0.1:$DashboardPort
   Node log      : $StateRoot\node.log
@@ -644,6 +671,36 @@ $info = @"
   picked the next available port automatically to avoid conflicts.
   The wallet app reads this port from rpc-port.txt and connects
   correctly regardless of which port was chosen.
+
+
+------------------------------------------------------------
+  LINUX / macOS SETUP  (for friends on other systems)
+------------------------------------------------------------
+
+  1) Download  ETHII-Solo-Miner-Suite-linux-x64.tar.gz  (or macos)
+     from: https://github.com/OBitsPlease/ETH-II-Solo-Miner-Suite/releases/latest
+
+  2) Extract the archive:
+       tar -xzf ETHII-Solo-Miner-Suite-linux-x64.tar.gz
+       cd ETHII-Solo-Miner-Suite-linux-x64
+
+  3) Install (one time only):
+       chmod +x install.sh
+       ./install.sh
+
+  4) Run the miner suite:
+       ~/.local/bin/ethii-miner-suite
+     First launch asks for your mining address (0x...) -- enter it once.
+     It is saved for future runs.
+
+  5) Open the dashboard in your browser:
+       http://127.0.0.1:8082
+
+  6) Point your GPU miner at:
+       stratum+tcp://YOUR_LINUX_IP:3335
+
+  You do NOT need to open any other files.  install.sh and
+  start-miner-suite.sh handle everything automatically.
 
 
 ------------------------------------------------------------
@@ -666,6 +723,8 @@ $info = @"
     Open PowerShell as Administrator and run this command:
       netsh advfirewall firewall add rule name="ETHII Stratum" ^
         dir=in action=allow protocol=TCP localport=$StratumPort
+      netsh advfirewall firewall add rule name="ETHII Stratum A10" ^
+        dir=in action=allow protocol=TCP localport=$A10CompatPort
     Then reconnect your miner.
 
   WALLET SHOWS "NODE OFFLINE"
@@ -696,7 +755,7 @@ $NodeLog = Join-Path $StateRoot "node.log"
 $NodeOutLog = Join-Path $StateRoot "node.out.log"
 $nodeProc = Start-Process -FilePath $EthiiExe -ArgumentList (
     "--datadir `"$DataDir`"",
-  "--config `"$configTomlPath`"",
+    "--config `"$configTomlPath`"",
     "--networkid 2048",
     "--syncmode full",
     "--gcmode archive",
@@ -738,18 +797,21 @@ if (-not $ready) {
 }
 Write-Host "  Node is ready!" -ForegroundColor Green
 
-# Keep miner service active so remote Ethash submissions are consumed.
-# Stopping miner causes remote shares to be accepted by stratum but dropped by node.
+# Enable the remote sealer so eth_getWork returns valid work for the stratum proxy.
+# miner_start(-1) passes -1 threads to ethash: the sealer code converts -1 to 0
+# CPU goroutines (source: consensus/ethash/sealer.go: "if threads < 0 { threads = 0 }").
+# The powLoop still runs to generate pending blocks and feed the remote sealer,
+# but NO local CPU hashing occurs. All real work is done by external GPU/ASIC miners.
 try {
   Invoke-RestMethod -Uri "http://127.0.0.1:$RpcPort" -Method POST `
-    -Body '{"jsonrpc":"2.0","method":"miner_start","params":[1],"id":1}' `
+    -Body '{"jsonrpc":"2.0","method":"miner_start","params":[-1],"id":1}' `
     -ContentType "application/json" -TimeoutSec 3 | Out-Null
-  Write-Host "  Miner service active for remote share ingestion." -ForegroundColor Green
+  Write-Host "  Sealer enabled (remote work only, 0 CPU threads)." -ForegroundColor Green
 } catch {
-  Write-Host "  Note: miner_start RPC unavailable on this build; verify share ingestion manually." -ForegroundColor DarkGray
+  Write-Host "  Note: miner_start RPC unavailable on this build." -ForegroundColor DarkGray
 }
 
-$RemoteRpcCandidates = @($PublicRpcUrl, "https://www.ethii.net/rpc")
+$RemoteRpcCandidates = @($PublicRpcUrl, $SecondaryPublicRpcUrl, "https://www.ethii.net/rpc") | Select-Object -Unique
 $EffectiveRemoteRpcUrl = Resolve-RemoteRpcUrl -Candidates $RemoteRpcCandidates
 if ($EffectiveRemoteRpcUrl -ne $PublicRpcUrl) {
   Write-Host "  Remote RPC fallback active: $EffectiveRemoteRpcUrl" -ForegroundColor Yellow
@@ -778,7 +840,7 @@ $PeerSyncScript = Join-Path $RootDir "sync-vps-peer.ps1"
 if (Test-Path $PeerSyncScript) {
   try {
     & powershell -NoProfile -ExecutionPolicy Bypass -File $PeerSyncScript `
-      -VpsHost $VpsHost -User $User -KeyPath $KeyPath -LocalRpcUrl "http://127.0.0.1:$RpcPort" `
+      -VpsHosts @($VpsHost, $SecondaryVpsHost) -VpsEnodes $SeedEnodes -User $User -KeyPath $KeyPath -LocalRpcUrl "http://127.0.0.1:$RpcPort" `
       -NodeLog $NodeLog | Write-Host
     Write-Host "  Refreshed VPS static peer entry from this PC." -ForegroundColor Green
   } catch {
@@ -888,9 +950,6 @@ $syncNudgeJob = Start-Job -ArgumentList $RpcPort,$EffectiveRemoteRpcUrl,$SeedEno
           }
 
           if ($workNum -gt 0 -and $localNum -gt 0 -and ($workNum + 2) -lt $localNum) {
-            Invoke-RestMethod -Uri ("http://127.0.0.1:" + $LocalRpcPort) -Method POST `
-              -Body '{"jsonrpc":"2.0","method":"miner_start","params":[1],"id":1}' `
-              -ContentType "application/json" -TimeoutSec 3 | Out-Null
             $staleWorkRefreshes++
           }
         } catch { }
@@ -947,19 +1006,21 @@ $syncNudgeJob = Start-Job -ArgumentList $RpcPort,$EffectiveRemoteRpcUrl,$SeedEno
 
 Write-Host "  Peer self-heal monitor active (see $PeerHealthLog)." -ForegroundColor Green
 
-# Emergency production mode: point stratum directly at VPS RPC so local miners
-# immediately submit to the public node while peer-sync issues are investigated.
-$StratumNodeUrl = $EffectiveRemoteRpcUrl
-if ([string]::IsNullOrWhiteSpace($StratumNodeUrl)) {
-  $StratumNodeUrl = $PublicRpcUrl
-}
+# Stratum MUST use the local node so that the user's etherbase is baked into
+# work templates. If stratum points at the VPS, the VPS etherbase gets the
+# block reward -- not the miner. Always use local RPC.
+$StratumNodeUrl = "http://127.0.0.1:$RpcPort"
 Write-Host "  Stratum node RPC : $StratumNodeUrl" -ForegroundColor Green
-Write-Host "  Stratum work source set to VPS/public node." -ForegroundColor Green
+Write-Host "  Stratum work source: local node (rewards go to your address)" -ForegroundColor Green
+Write-Host ""
+Write-Host "PAYOUT WARNING:" -ForegroundColor Yellow
+Write-Host "  Rewards go to the wallet configured on this stratum host: $Etherbase" -ForegroundColor Yellow
+Write-Host "  Miner worker/user and port selection do not change payout destination." -ForegroundColor Yellow
 Write-Host ""
 
 # ── Launch Stratum Proxy ──────────────────────────────────────────────────────
 Write-Host "Launching Stratum Proxy on port $StratumPort..." -ForegroundColor Yellow
-$stratumArgs = "--node `"$StratumNodeUrl`" --stratum `"0.0.0.0:$StratumPort`" --dashboard `"0.0.0.0:$DashboardPort`" --interval 500ms --etherbase `"$Etherbase`""
+$stratumArgs = "--node `"$StratumNodeUrl`" --stratum `"0.0.0.0:$StratumPort`" --a10-stratum `"0.0.0.0:$A10CompatPort`" --dashboard `"0.0.0.0:$DashboardPort`" --interval 500ms --etherbase `"$Etherbase`""
 $StratumLog = Join-Path $RootDir "stratum.log"
 $StratumErrLog = Join-Path $RootDir "stratum.err.log"
 Start-Process -FilePath $StratumExe -ArgumentList $stratumArgs -WindowStyle Hidden -RedirectStandardOutput $StratumLog -RedirectStandardError $StratumErrLog | Out-Null

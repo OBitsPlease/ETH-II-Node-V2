@@ -12,9 +12,18 @@ if (-not (Test-Path $IconPath)) {
   $IconPath = Join-Path $WalletDir 'assets\ethii.ico'
 }
 
-$desktop = [Environment]::GetFolderPath('Desktop')
 $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-$locations = @($desktop, $startMenu)
+$desktop = [Environment]::GetFolderPath('Desktop')
+$locations = @($startMenu, $desktop)
+
+# Clean up legacy duplicate shortcut created by older versions of this script.
+@('ETH II Wallet') | ForEach-Object {
+  $old = Join-Path $desktop ($_ + '.lnk')
+  if (Test-Path $old) {
+    Remove-Item $old -Force
+    if (-not $Quiet) { Write-Host "Removed legacy desktop shortcut: $old" -ForegroundColor DarkYellow }
+  }
+}
 
 $wsh = New-Object -ComObject WScript.Shell
 
@@ -55,7 +64,6 @@ if (-not (Test-Path $SuiteLauncher)) {
 
 foreach ($folder in $locations) {
   Set-Shortcut -Folder $folder -Name 'ETHII Wallet' -Target $WalletLauncher -WorkingDir $WalletDir -Icon $IconPath
-  Set-Shortcut -Folder $folder -Name 'ETH II Wallet' -Target $WalletLauncher -WorkingDir $WalletDir -Icon $IconPath
   Set-Shortcut -Folder $folder -Name 'ETHII Miner Suite' -Target $SuiteLauncher -WorkingDir $WalletDir -Icon $IconPath
 }
 

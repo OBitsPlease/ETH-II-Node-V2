@@ -25,12 +25,18 @@ if (!gotLock) {
 let WALLET_FILE; // initialized after app is ready
 let RPC_PORT = 8545; // default, may be updated by port scan
 let RPC_URL = 'http://127.0.0.1:8545';
-const PUBLIC_RPC_URL = 'https://ethii.net/rpc'; // canonical public read RPC
-const READ_RPC_URL = PUBLIC_RPC_URL; // canonical chain source for wallet reads/tx
-const RELEASES_API_URL = 'https://api.github.com/repos/OBitsPlease/ETH-II-Wallet/releases';
+const PRIMARY_RPC_URL = 'http://87.99.142.128:8545'; // USA VPS (canonical)
+const SECONDARY_RPC_URL = 'http://91.99.231.217:8545'; // EU VPS fallback
+const PUBLIC_RPC_URL = 'https://ethii.net/rpc'; // public fallback
+const READ_RPC_URL = PRIMARY_RPC_URL; // canonical chain source for wallet reads/tx
+const READ_RPC_CANDIDATES = [READ_RPC_URL, SECONDARY_RPC_URL, PUBLIC_RPC_URL];
+const RELEASES_API_URL = 'https://api.github.com/repos/OBitsPlease/ETH-II-Solo-Miner-Suite/releases';
 const HTTP_HEADERS = { 'User-Agent': 'ETHII-Wallet-Updater' };
 const CHAIN_ID = 2048;
-const BOOTNODE_ENODE = 'enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303';
+const BOOTNODE_ENODES = [
+  'enode://05f7f1c669368d16829699b6e1ddffbd8a3fee08a1301cac33922ad05f56fd53aadbca02f326d6b1c863c560c9adf30a75b44d45e7448ebb41d9c47235204fdf@87.99.142.128:30303',
+  'enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303',
+];
 const AUTO_NUDGE_INTERVAL_MS = 20000;
 const AUTO_NUDGE_LAG_THRESHOLD = 2;
 const LOCAL_FAILOVER_LAG = 8;
@@ -162,14 +168,16 @@ function ensureBootstrapFiles() {
       if (!fs.existsSync(gethDir)) continue; // only write if the dir exists (node has been init'd)
       // static-nodes.json — read by older geth/ethii builds
       const staticNodesPath = path.join(gethDir, 'static-nodes.json');
-      fs.writeFileSync(staticNodesPath, JSON.stringify([BOOTNODE_ENODE], null, 2), 'utf8');
+      fs.writeFileSync(staticNodesPath, JSON.stringify(BOOTNODE_ENODES, null, 2), 'utf8');
       // config.toml — read by newer geth/ethii builds (takes precedence over static-nodes.json)
       const configTomlPath = path.join(gethDir, 'config.toml');
-      const configToml = `[Node.P2P]\nStaticNodes = [\n  "${BOOTNODE_ENODE}"\n]\n`;
+      const tomlNodes = BOOTNODE_ENODES.map((enode) => `  "${enode}"`).join(',\n');
+      const configToml = `[Node.P2P]\nStaticNodes = [\n${tomlNodes}\n]\n`;
       // Only write config.toml if it doesn't exist or doesn't already contain the correct enode.
       // Avoids overwriting custom user config that may have additional settings.
       const existing = fs.existsSync(configTomlPath) ? fs.readFileSync(configTomlPath, 'utf8') : '';
-      if (!existing.includes(BOOTNODE_ENODE)) {
+      const hasAllBootnodes = BOOTNODE_ENODES.every((enode) => existing.includes(enode));
+      if (!hasAllBootnodes) {
         fs.writeFileSync(configTomlPath, configToml, 'utf8');
       }
     } catch (e) {
@@ -291,6 +299,7 @@ ipcMain.handle('wallet-create', async () => {
 // Save encrypted wallet to disk
 ipcMain.handle('wallet-save', async (_, { privateKey, password }) => {
   try {
+    fs.mkdirSync(path.dirname(WALLET_FILE), { recursive: true });
     const wallet = new ethers.Wallet(privateKey);
     const encrypted = await wallet.encrypt(password);
     fs.writeFileSync(WALLET_FILE, encrypted, 'utf8');
@@ -435,9 +444,9 @@ ipcMain.handle('get-node-status', async () => {
     // Wallet-only mode: if local RPC is down, fall back to VPS read RPC.
     try {
       const [networkBlockHex, networkPeersHex, networkLatestBlock] = await Promise.all([
-        rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
-        rpcCallOnUrl(READ_RPC_URL, 'net_peerCount', []),
-        rpcCallOnUrl(READ_RPC_URL, 'eth_getBlockByNumber', ['latest', false]),
+        rpcCallRead('eth_blockNumber', []),
+        rpcCallRead('net_peerCount', []),
+        rpcCallRead('eth_getBlockByNumber', ['latest', false]),
       ]);
 
       const networkBlockNum = parseInt(networkBlockHex, 16);
@@ -473,7 +482,9 @@ async function performSyncNudge({ force = false, lag = null, reason = 'wallet-au
 
   try {
     // Keep the VPS peer sticky in case local discovery drifts to stale peers.
-    await rpcCallLocal('admin_addPeer', [BOOTNODE_ENODE]);
+    for (const bootnode of BOOTNODE_ENODES) {
+      await rpcCallLocal('admin_addPeer', [bootnode]);
+    }
   } catch {
     // Ignore peer-add failures when admin API is unavailable (manual node launch).
   }
@@ -481,7 +492,7 @@ async function performSyncNudge({ force = false, lag = null, reason = 'wallet-au
   try {
     const [localBlockHex, remoteBlockHex] = await Promise.all([
       rpcCallLocal('eth_blockNumber', []),
-      rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
+      rpcCallRead('eth_blockNumber', []),
     ]);
     const localBlock = parseInt(localBlockHex, 16);
     const remoteBlock = parseInt(remoteBlockHex, 16);
@@ -523,9 +534,9 @@ async function fetchNodeSyncStatus() {
   let networkLatestBlock = null;
   try {
     const [networkBlockHex, networkPeersHex, latestBlock] = await Promise.all([
-      rpcCallOnUrl(READ_RPC_URL, 'eth_blockNumber', []),
-      rpcCallOnUrl(READ_RPC_URL, 'net_peerCount', []),
-      rpcCallOnUrl(READ_RPC_URL, 'eth_getBlockByNumber', ['latest', false]),
+      rpcCallRead('eth_blockNumber', []),
+      rpcCallRead('net_peerCount', []),
+      rpcCallRead('eth_getBlockByNumber', ['latest', false]),
     ]);
     networkBlockNum = parseInt(networkBlockHex, 16);
     networkPeers = parseInt(networkPeersHex, 16);
@@ -557,7 +568,7 @@ async function fetchNodeSyncStatus() {
 
 // Wallet read RPC helper - public canonical first, local fallback.
 async function rpcCallRead(method, params = []) {
-  const urls = (READ_RPC_URL !== RPC_URL) ? [READ_RPC_URL, RPC_URL] : [READ_RPC_URL];
+  const urls = [...new Set([...READ_RPC_CANDIDATES, RPC_URL])];
   let lastErr;
   for (const url of urls) {
     try {

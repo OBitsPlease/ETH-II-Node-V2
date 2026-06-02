@@ -148,7 +148,14 @@ async function initApp() {
 }
 
 // ---- Setup card buttons ----
-document.getElementById('card-new').querySelector('button').addEventListener('click', () => showScreen('screen-new-wallet'));
+document.getElementById('card-new').querySelector('button').addEventListener('click', () => {
+  // Always reset to step1 (password entry) before showing the create screen
+  document.getElementById('new-wallet-step1').classList.remove('hidden');
+  document.getElementById('new-wallet-step2').classList.add('hidden');
+  document.getElementById('new-password').value = '';
+  document.getElementById('new-password-confirm').value = '';
+  showScreen('screen-new-wallet');
+});
 document.getElementById('card-unlock').querySelector('button').addEventListener('click', async () => {
   const exists = await window.ethii.walletExists();
   if (!exists) { showToast('No wallet found. Create one first.'); return; }
@@ -157,7 +164,14 @@ document.getElementById('card-unlock').querySelector('button').addEventListener(
 document.getElementById('card-import').querySelector('button').addEventListener('click', () => showScreen('screen-import'));
 
 // ---- Back buttons ----
-document.getElementById('back-from-new').addEventListener('click', () => showScreen('screen-setup'));
+document.getElementById('back-from-new').addEventListener('click', () => {
+  // Reset create-wallet screen so step1 (password) always shows on re-entry
+  document.getElementById('new-wallet-step1').classList.remove('hidden');
+  document.getElementById('new-wallet-step2').classList.add('hidden');
+  document.getElementById('new-password').value = '';
+  document.getElementById('new-password-confirm').value = '';
+  showScreen('screen-setup');
+});
 document.getElementById('back-from-unlock').addEventListener('click', () => showScreen('screen-setup'));
 document.getElementById('back-from-import').addEventListener('click', () => showScreen('screen-setup'));
 

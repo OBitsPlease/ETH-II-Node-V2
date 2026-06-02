@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,12 +33,22 @@ const (
 )
 
 var (
-	nodeURL       = flag.String("node", "http://127.0.0.1:8545", "ETHII node RPC URL")
-	stratumAddr   = flag.String("stratum", "0.0.0.0:3333", "Stratum listen address")
-	dashboardAddr = flag.String("dashboard", "0.0.0.0:8082", "Dashboard HTTP address (empty = disabled)")
-	workInterval  = flag.Duration("interval", 2*time.Second, "Work refresh interval")
-	settingsDir   = flag.String("settings", ".", "Directory for settings persistence files")
-	etherbaseFlag = flag.String("etherbase", "", "Mining reward address (skip eth_coinbase lookup)")
+	nodeURL        = flag.String("node", "http://127.0.0.1:8545", "ETHII node RPC URL")
+	stratumAddr    = flag.String("stratum", "0.0.0.0:3333", "Stratum listen address")
+	a10StratumAddr = flag.String("a10-stratum", "0.0.0.0:3336", "Optional Innosilicon A10 compatibility stratum address (empty disables)")
+	a10NotifyOrder = flag.String("a10-notify-order", "job-header-seed", "A10 notify order: job-header-seed or job-seed-header")
+	a10Difficulty  = flag.Float64("a10-difficulty", 1.0, "A10 static mining.set_difficulty value")
+	dashboardAddr  = flag.String("dashboard", "0.0.0.0:8082", "Dashboard HTTP address (empty = disabled)")
+	workInterval   = flag.Duration("interval", 2*time.Second, "Work refresh interval")
+	settingsDir    = flag.String("settings", ".", "Directory for settings persistence files")
+	etherbaseFlag  = flag.String("etherbase", "", "Mining reward address (skip eth_coinbase lookup)")
+)
+
+type stratumMode int
+
+const (
+	modeStandard stratumMode = iota
+	modeA10Compat
 )
 
 // ─── RPC helpers ─────────────────────────────────────────────────────────────
@@ -56,12 +67,34 @@ type rpcResponse struct {
 	} `json:"error"`
 }
 
+var rpcHTTPClient = &http.Client{
+	Timeout: 6 * time.Second,
+	Transport: &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   3 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        64,
+		MaxIdleConnsPerHost: 32,
+		MaxConnsPerHost:     64,
+		IdleConnTimeout:     30 * time.Second,
+	},
+}
+
 func rpcCall(method string, params []interface{}) (json.RawMessage, error) {
 	if params == nil {
 		params = []interface{}{}
 	}
 	body, _ := json.Marshal(rpcRequest{JSONRPC: "2.0", Method: method, Params: params, ID: 1})
-	resp, err := http.Post(*nodeURL, "application/json", bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, *nodeURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := rpcHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -415,6 +448,7 @@ var (
 	confirmedBlocksMu        sync.RWMutex
 	confirmedPoolBlocks      []BlockRecord
 	confirmedBlocksRefreshed time.Time
+	confirmedRefreshRunning  int32
 )
 
 func recordShare(worker string, valid bool) {
@@ -522,6 +556,33 @@ func getConfirmedPoolBlocks() []BlockRecord {
 	confirmedBlocksMu.Unlock()
 
 	return append([]BlockRecord(nil), blocks...)
+}
+
+func getConfirmedPoolBlocksCached() []BlockRecord {
+	confirmedBlocksMu.RLock()
+	defer confirmedBlocksMu.RUnlock()
+	return append([]BlockRecord(nil), confirmedPoolBlocks...)
+}
+
+func getSessionConfirmedPoolBlocksCached() []BlockRecord {
+	all := getConfirmedPoolBlocksCached()
+	out := make([]BlockRecord, 0, len(all))
+	for _, block := range all {
+		if !block.At.Before(startTime) {
+			out = append(out, block)
+		}
+	}
+	return out
+}
+
+func triggerConfirmedBlocksRefresh() {
+	if !atomic.CompareAndSwapInt32(&confirmedRefreshRunning, 0, 1) {
+		return
+	}
+	go func() {
+		defer atomic.StoreInt32(&confirmedRefreshRunning, 0)
+		_ = getConfirmedPoolBlocks()
+	}()
 }
 
 func getSessionConfirmedPoolBlocks() []BlockRecord {
@@ -988,6 +1049,7 @@ type Miner struct {
 	wb       *WorkBroadcaster
 	mu       sync.Mutex
 	ethProxy bool // true = EthProxy protocol (eth_submitLogin/eth_getWork)
+	mode     stratumMode
 }
 
 func (m *Miner) send(msg stratumMsg) error {
@@ -1011,6 +1073,10 @@ func (m *Miner) sendWork(w WorkUpdate) {
 		m.sendWorkEthProxyWithID(0, w)
 		return
 	}
+	if m.mode == modeA10Compat {
+		m.sendWorkA10(w)
+		return
+	}
 	// Stratum protocol: mining.notify push
 	// w.Target is already the mining boundary (2^256/difficulty) returned by
 	// ethash_getWork. Pass it through directly — do NOT call targetFromDiff,
@@ -1023,6 +1089,49 @@ func (m *Miner) sendWork(w WorkUpdate) {
 		ID:     nil,
 		Method: "mining.notify",
 		Params: jsonMarshal([]interface{}{w.HeaderHash, w.SeedHash, target, true}),
+	})
+}
+
+func makeA10JobID(w WorkUpdate) string {
+	height := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(w.Height)), "0x")
+	if height == "" {
+		height = "0"
+	}
+	header := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(w.HeaderHash)), "0x")
+	if len(header) >= 8 {
+		header = header[:8]
+	} else if header == "" {
+		header = "0"
+	}
+	return fmt.Sprintf("%s-%s", height, header)
+}
+
+func (m *Miner) sendA10SetDifficulty() {
+	if *a10Difficulty <= 0 {
+		return
+	}
+	m.send(stratumMsg{
+		ID:     nil,
+		Method: "mining.set_difficulty",
+		Params: jsonMarshal([]interface{}{*a10Difficulty}),
+	})
+}
+
+func (m *Miner) sendWorkA10(w WorkUpdate) {
+	target := w.Target
+	if !strings.HasPrefix(target, "0x") {
+		target = "0x" + target
+	}
+	jobID := makeA10JobID(w)
+	order := strings.ToLower(strings.TrimSpace(*a10NotifyOrder))
+	params := []interface{}{jobID, w.HeaderHash, w.SeedHash, target, true}
+	if order == "job-seed-header" {
+		params = []interface{}{jobID, w.SeedHash, w.HeaderHash, target, true}
+	}
+	m.send(stratumMsg{
+		ID:     nil,
+		Method: "mining.notify",
+		Params: jsonMarshal(params),
 	})
 }
 
@@ -1051,7 +1160,7 @@ func jsonMarshal(v interface{}) json.RawMessage {
 	return json.RawMessage(b)
 }
 
-func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
+func handleMiner(conn net.Conn, wb *WorkBroadcaster, mode stratumMode) {
 	defer conn.Close()
 	atomic.AddInt64(&totalConnected, 1)
 	defer atomic.AddInt64(&totalConnected, -1)
@@ -1067,6 +1176,7 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 		conn:   conn,
 		writer: bufio.NewWriter(conn),
 		wb:     wb,
+		mode:   mode,
 	}
 
 	addr := conn.RemoteAddr().String()
@@ -1097,11 +1207,27 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 
 		switch msg.Method {
 		case "mining.subscribe":
-			m.send(stratumMsg{
-				ID:     msg.ID,
-				Result: []interface{}{[]interface{}{[]string{"mining.notify", fmt.Sprintf("%d", subID)}}, fmt.Sprintf("%016x", subID), 8},
-				Error:  nil,
-			})
+			if m.mode == modeA10Compat {
+				m.send(stratumMsg{
+					ID: msg.ID,
+					Result: []interface{}{
+						[]interface{}{
+							[]string{"mining.notify", fmt.Sprintf("%d", subID)},
+							[]string{"mining.set_difficulty", fmt.Sprintf("%d", subID)},
+						},
+						fmt.Sprintf("%016x", subID),
+						8,
+					},
+					Error: nil,
+				})
+				m.sendA10SetDifficulty()
+			} else {
+				m.send(stratumMsg{
+					ID:     msg.ID,
+					Result: []interface{}{[]interface{}{[]string{"mining.notify", fmt.Sprintf("%d", subID)}}, fmt.Sprintf("%016x", subID), 8},
+					Error:  nil,
+				})
+			}
 
 		case "mining.authorize":
 			var params []string
@@ -1190,6 +1316,9 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster) {
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("scanner error from %s: %v", addr, err)
+	}
 }
 
 // ─── Work poller ─────────────────────────────────────────────────────────────
@@ -1252,9 +1381,11 @@ func startDashboard(addr string) {
 		ns := netStats
 		netStatsMu.RUnlock()
 
-		sessionBlocks := getSessionConfirmedPoolBlocks()
+		// Keep stats endpoint lightweight; refresh confirmed blocks in background.
+		triggerConfirmedBlocksRefresh()
+		sessionBlocks := getSessionConfirmedPoolBlocksCached()
 		blocksFound := len(sessionBlocks)
-		allTimeBlocks := len(getConfirmedPoolBlocks())
+		allTimeBlocks := len(getConfirmedPoolBlocksCached())
 		tm := float64(blocksFound) * 5.0
 
 		stratumPort := *stratumAddr
@@ -1876,6 +2007,9 @@ func main() {
 	fmt.Println("============================================")
 	fmt.Printf("  Node RPC  : %s\n", *nodeURL)
 	fmt.Printf("  Stratum   : %s\n", *stratumAddr)
+	if strings.TrimSpace(*a10StratumAddr) != "" {
+		fmt.Printf("  Stratum+A10: %s (%s)\n", *a10StratumAddr, *a10NotifyOrder)
+	}
 	fmt.Printf("  Dev Fee   : %.0f%% -> %s (hardcoded)\n", devFeePercent, devFeeAddress)
 	if *dashboardAddr != "" {
 		dashURL := strings.Replace(*dashboardAddr, "0.0.0.0", "127.0.0.1", 1)
@@ -1906,6 +2040,25 @@ func main() {
 		go startDashboard(*dashboardAddr)
 	}
 
+	if strings.TrimSpace(*a10StratumAddr) != "" {
+		go func(addr string) {
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				log.Printf("A10 compatibility listener disabled on %s: %v", addr, err)
+				return
+			}
+			log.Printf("A10 compatibility stratum listening on %s (notify order: %s)", addr, *a10NotifyOrder)
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					log.Printf("A10 accept error: %v", err)
+					continue
+				}
+				go handleMiner(conn, wb, modeA10Compat)
+			}
+		}(*a10StratumAddr)
+	}
+
 	ln, err := net.Listen("tcp", *stratumAddr)
 	if err != nil {
 		log.Fatalf("Failed to listen on %s: %v", *stratumAddr, err)
@@ -1918,7 +2071,7 @@ func main() {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		go handleMiner(conn, wb)
+		go handleMiner(conn, wb, modeStandard)
 	}
 }
 

@@ -1,0 +1,76 @@
+ETHII Miner Share Submission Guide
+
+This document shows the exact submission formats a miner or ASIC should use to get accepted shares on ETHII.
+
+1) EthProxy miners
+
+These miners use:
+- eth_submitLogin
+- eth_getWork
+- eth_submitWork
+
+Login:
+{"id":1,"method":"eth_submitLogin","params":["0xYourWalletAddress","x"]}
+
+Get work:
+{"id":1,"method":"eth_getWork","params":[]}
+
+Work response format:
+["0xheaderHash","0xseedHash","0xtarget","0xheight"]
+
+Submit solved share:
+{"id":1,"method":"eth_submitWork","params":["0xnonce","0xheaderHash","0xmixDigest"]}
+
+Important:
+- nonce = the solved nonce
+- headerHash = the current work header the share was solved against
+- mixDigest = the final mix value computed by the miner
+
+2) Classic Stratum miners
+
+These miners use:
+- mining.subscribe
+- mining.authorize
+- mining.notify
+- mining.submit
+
+Subscribe:
+{"id":1,"method":"mining.subscribe","params":["MinerName/1.0"]}
+
+Authorize:
+{"id":2,"method":"mining.authorize","params":["WorkerName","x"]}
+
+When work is delivered, the miner submits the solved share as:
+{"id":3,"method":"mining.submit","params":["WorkerName","JobId","0xnonce","0xheaderHash","0xmixDigest"]}
+
+Important:
+- WorkerName = miner name or worker ID
+- JobId = the job identifier from the notify message
+- nonce = the solved nonce
+- headerHash = the current job header
+- mixDigest = the final mix value
+
+3) What the pool checks
+
+The pool cares most about these solved-work fields:
+- nonce
+- headerHash
+- mixDigest
+
+If headerHash is stale, the share will be rejected.
+If the values match the current job, the share should be accepted.
+
+4) What accepted looks like
+
+A successful submit usually returns:
+- result: true
+or another success response from the miner client.
+
+5) Quick checklist for the operator
+
+- Use the correct protocol path for the miner type.
+- Keep the headerHash tied to the current work.
+- Make sure nonce and mixDigest come from the solved share.
+- If the pool rejects many shares, check for stale work or wrong parameter order.
+
+If needed, the exact pool code that parses these fields is in stratum/main.go.
