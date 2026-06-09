@@ -2,6 +2,27 @@
 
 This repository is the clean baseline for ETH-II node and public pool operators.
 
+## Controlled access model
+
+To reduce abuse risk while peer count is still growing:
+
+- This public repo contains docs/templates only.
+- Operator binaries are distributed by admin approval.
+- Each approved operator gets an `OP-XXXX` ID and must submit a startup check-in.
+
+See:
+- `ops/POLICY.md`
+- `ops/templates/access-request-template.md`
+- `ops/templates/startup-checkin-template.md`
+
+On this PC, use the local registry manager to track operators:
+
+- Double-click `ops/operator-registry-manager.bat`
+- Or run: `powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\operator-registry-manager.ps1`
+
+Registry file:
+- `ops/operator-registry.json`
+
 ## Security-first scope
 
 Included:
@@ -14,7 +35,7 @@ Not included:
 - Chain database (`chaindata`, `ancient`, snapshots)
 - Wallet keys or payout secrets
 - Legacy mixed files from previous repos
-- Prebuilt binaries (operators should use official release binaries)
+- Prebuilt binaries in the public repository
 
 ## Canonical chain identity
 
@@ -214,3 +235,16 @@ journalctl -u ethii-stratum -n 200 --no-pager | egrep 'eth_submitLogin|eth_submi
 - Node RPC stalled, causing stratum getWork timeouts
 - Firewall/NAT not forwarding 3335
 - Miner pointed to wrong host or port
+
+## Admin operations on this PC
+
+Use the registry manager for controlled onboarding:
+
+1. Add approved operator (creates `OP-XXXX`).
+2. Record startup check-in (IP, enode, chain identity).
+3. Auto-quarantine if chain identity mismatches.
+4. Set status (`active`, `paused`, `blocked`, `quarantine`).
+5. Export CSV report for backups/audit.
+
+If interrupted or restarted, current setup progress is tracked in:
+- `ops/SETUP-STATUS.md`
