@@ -1,0 +1,14 @@
+[Unit]
+Description=ETHII Stratum
+After=ethii-node.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStart=/root/stratum -node http://127.0.0.1:8545 -stratum 0.0.0.0:3335 -a10-stratum 0.0.0.0:3336 -etherbase <ETHERBASE> -lowdiff-stratum 0.0.0.0:3334 -lowdiff-difficulty 0.0002 -dashboard 0.0.0.0:8082
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
