@@ -59,6 +59,37 @@ systemctl enable --now ethii-node
 ./scripts/verify-chain.sh
 ```
 
+## Windows one-click (network support only)
+
+Use this mode if you only want to help network peer count.
+
+This does:
+- Start a node for peer connectivity.
+- Verify canonical chain identity.
+
+This does not:
+- Run stratum.
+- Host a public mining pool.
+
+### Steps
+
+1. Download or clone this repository.
+2. Put `ethii.exe` in the repository root (same folder as `genesis.json`).
+3. Double-click `one-click-peer-node.bat`.
+4. Wait for the script to report `PASS canonical ETH-II chain identity`.
+
+The launcher starts a node using a local datadir:
+- `%USERPROFILE%\\ETHII\\peer-node\\data`
+
+Logs are written to:
+- `%USERPROFILE%\\ETHII\\peer-node\\data\\peer-node.log`
+
+To check identity manually:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-chain.ps1
+```
+
 ## Public pool notes
 
 For pool operators, also deploy stratum from `templates/systemd/ethii-stratum.service.template` and verify chain identity before opening pool ports.
