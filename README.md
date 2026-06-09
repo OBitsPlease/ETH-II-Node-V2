@@ -93,3 +93,124 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-chain.ps1
 ## Public pool notes
 
 For pool operators, also deploy stratum from `templates/systemd/ethii-stratum.service.template` and verify chain identity before opening pool ports.
+
+## Linux pool quickstart (operators)
+
+Use this section if you want to run a public pool on Linux.
+
+1. Place binaries:
+- /root/ethii
+- /root/stratum
+- chmod +x /root/ethii /root/stratum
+
+2. Prepare data and config:
+
+```bash
+mkdir -p /root/ethii-data /root/.ethereum
+cp genesis.json /root/genesis.json
+cp templates/config.toml /root/ethii-data/config.toml
+cp p2p/static-nodes.json /root/.ethereum/static-nodes.json
+cp p2p/trusted-nodes.json /root/.ethereum/trusted-nodes.json
+```
+
+3. Initialize chain data once:
+
+```bash
+/root/ethii --datadir /root/ethii-data --state.scheme hash init /root/genesis.json
+```
+
+4. Install services from templates:
+- templates/systemd/ethii-node.service.template
+- templates/systemd/ethii-stratum.service.template
+
+Replace placeholders:
+- <DATA_DIR> with /root/ethii-data
+- <EXT_IP> with your server public IP
+- <ETHERBASE> with your pool payout address
+
+Save as:
+- /etc/systemd/system/ethii-node.service
+- /etc/systemd/system/ethii-stratum.service
+
+5. Start services:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now ethii-node
+systemctl enable --now ethii-stratum
+```
+
+6. Verify chain identity and ports:
+
+```bash
+./scripts/verify-chain.sh
+ss -lntp | egrep ':30303|:3335|:3336|:3334|:8082'
+```
+
+Expected pool endpoint for miners:
+- your-server-ip:3335
+
+## Linux troubleshooting (pool connection issues)
+
+If no miners can connect, run these checks in order.
+
+1. Service health:
+
+```bash
+systemctl is-active ethii-node
+systemctl is-active ethii-stratum
+journalctl -u ethii-node -n 80 --no-pager
+journalctl -u ethii-stratum -n 120 --no-pager
+```
+
+2. Chain identity (must match):
+
+```bash
+./scripts/verify-chain.sh
+```
+
+3. RPC responsiveness (stratum depends on fast local RPC):
+
+```bash
+for i in 1 2 3; do
+	time curl -sS -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://127.0.0.1:8545
+done
+```
+
+If this is slow or timing out, miners may show pool dead.
+
+4. P2P and stratum listening ports:
+
+```bash
+ss -lntup | egrep ':30303|:3335|:3336|:3334|:8082|:8545'
+```
+
+5. Firewall rules (open these):
+- 30303/tcp
+- 30303/udp
+- 3335/tcp
+- 3336/tcp
+- 3334/tcp
+
+For UFW:
+
+```bash
+ufw allow 30303/tcp
+ufw allow 30303/udp
+ufw allow 3335/tcp
+ufw allow 3336/tcp
+ufw allow 3334/tcp
+ufw status
+```
+
+6. Confirm stratum sees real miner traffic:
+
+```bash
+journalctl -u ethii-stratum -n 200 --no-pager | egrep 'eth_submitLogin|eth_submitWork|Share accepted|Share rejected|getWork error'
+```
+
+7. Common root causes when no one can connect:
+- Wrong chain identity (not net_version 20482 and chainId 0x800)
+- Node RPC stalled, causing stratum getWork timeouts
+- Firewall/NAT not forwarding 3335
+- Miner pointed to wrong host or port
