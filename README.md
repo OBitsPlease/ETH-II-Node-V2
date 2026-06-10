@@ -2,6 +2,12 @@
 
 This repository is the clean baseline for ETH-II node and public pool operators.
 
+## Pool operators: start here
+
+**[POOL-OPERATORS.md](POOL-OPERATORS.md)** — one-command install of a
+self-running ETHII pool (node + stratum + auto-payouts + self-healing).
+You need a download key from the ETHII team.
+
 ## Controlled access model
 
 To reduce abuse risk while peer count is still growing:
