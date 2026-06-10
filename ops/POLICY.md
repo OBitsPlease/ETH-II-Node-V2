@@ -7,15 +7,21 @@ Keep chain participation open enough for growth while reducing unknown-risk oper
 ## Distribution model
 
 - Public repo: docs/templates only
-- Controlled binaries: distributed only to approved operators
+- Controlled binaries: distributed via the gated download service at `https://www.ethii.net/dl/` using per-operator access keys
+- Every key is individually issued, every download is logged per key, and keys can be revoked at any time
 
 ## Approval flow
 
 1. Operator submits Access Request.
 2. Admin assigns Operator ID (`OP-XXXX`).
-3. Admin distributes approved binaries privately.
-4. Operator performs startup check-in.
-5. Admin validates chain identity and marks operator `active`.
+3. Admin issues a personal download key (`ETHII-XXXX-XXXX-XXXX`) for the gated download service.
+4. Operator downloads binaries:
+   - `https://www.ethii.net/dl/ethii-linux-amd64?key=YOUR-KEY`
+   - `https://www.ethii.net/dl/ethii-windows-amd64.exe?key=YOUR-KEY`
+   - `https://www.ethii.net/dl/stratum-linux-amd64?key=YOUR-KEY`
+   - `https://www.ethii.net/dl/stratum-windows-amd64.exe?key=YOUR-KEY`
+5. Operator performs startup check-in.
+6. Admin validates chain identity and marks operator `active`.
 
 ## Required startup identity
 

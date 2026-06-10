@@ -15,6 +15,25 @@ See:
 - `ops/templates/access-request-template.md`
 - `ops/templates/startup-checkin-template.md`
 
+## Getting the binaries (access key required)
+
+Node and stratum binaries are served from the official gated download service, not from GitHub:
+
+1. Request access: open an issue on this repo titled `Access request` using `ops/templates/access-request-template.md`, or use the contact info on https://www.ethii.net
+2. You will receive a personal key (`ETHII-XXXX-XXXX-XXXX`). Do not share it — every download is logged per key and keys can be revoked.
+3. Download:
+   - `https://www.ethii.net/dl/ethii-linux-amd64?key=YOUR-KEY`
+   - `https://www.ethii.net/dl/ethii-windows-amd64.exe?key=YOUR-KEY`
+   - `https://www.ethii.net/dl/stratum-linux-amd64?key=YOUR-KEY`
+   - `https://www.ethii.net/dl/stratum-windows-amd64.exe?key=YOUR-KEY`
+
+Example (Linux):
+
+```bash
+curl -fL -o /root/ethii "https://www.ethii.net/dl/ethii-linux-amd64?key=YOUR-KEY"
+chmod +x /root/ethii
+```
+
 On this PC, use the local registry manager to track operators:
 
 - Double-click `ops/operator-registry-manager.bat`
