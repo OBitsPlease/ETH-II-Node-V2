@@ -1,6 +1,7 @@
 # ETH-II Node Access Request Template
 
-Send this to request binary access.
+Fill this out and **DM it to `@bitspleaseyt.skr` on Discord**, or open a
+GitHub issue on this repo titled `Access request`.
 
 - Contact handle:
 - Purpose: peer-support node or pool operator

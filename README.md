@@ -2,6 +2,11 @@
 
 This repository is the clean baseline for ETH-II node and public pool operators.
 
+> **Want to run a node or pool?** Fill out
+> [`ops/templates/access-request-template.md`](ops/templates/access-request-template.md)
+> and DM it to **`@bitspleaseyt.skr`** on Discord (or open a GitHub issue
+> titled `Access request`). You'll get a download key for the binaries.
+
 ## Pool operators: start here
 
 **[POOL-OPERATORS.md](POOL-OPERATORS.md)** — one-command install of a
