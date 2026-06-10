@@ -61,7 +61,7 @@ Not included:
 Verify your node matches all three values before opening public services:
 - net_version: `20482`
 - eth_chainId: `0x800`
-- genesis hash: `0x6836fa7f7ddaf5807ff48b4eb9f4fd63ceaf33d52ae419349bd72b85dd34f8bf`
+- genesis hash: `0xce9eec5ec053f791d5f833e7d385a1fd214daa85928ecbaba04381fd1b16b1f2`
 
 Use:
 - `scripts/verify-chain.sh` (Linux)
