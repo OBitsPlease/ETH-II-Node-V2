@@ -19,6 +19,13 @@ publicly. The key you were given unlocks them from `https://www.ethii.net/dl/`.
 Keep it private — it is tied to you. You only use it during install and
 when updating.
 
+**Best on a dedicated server.** The installer checks before touching
+anything: if it finds an existing ETHII install or other services already
+using the pool's ports (30303, 3333, 3334, 3336, 8082, 8545), it aborts
+without installing. If this server runs anything else you care about,
+take a snapshot/backup with your VPS provider before installing — it
+takes a minute and makes any experiment fully reversible.
+
 ## 2. Install (one command)
 
 SSH into your server as root and run:
@@ -180,6 +187,7 @@ Your chain data, pool wallet, and payout state are untouched by updates.
 
 | Symptom | Fix |
 |---|---|
+| Install aborts with `port(s) ... already in use` | Something on the server already uses a pool port. Run `ss -lntup` to see what; stop/remove it, or use a clean server. Nothing was installed. |
 | Install fails at download | Check your key is correct and not expired — contact the ETHII team |
 | `GENESIS MISMATCH` at install | You somehow got the wrong genesis.json — re-download the script and retry |
 | Node not syncing / 0 peers | Open 30303 TCP+UDP in your firewall and your provider's cloud firewall |

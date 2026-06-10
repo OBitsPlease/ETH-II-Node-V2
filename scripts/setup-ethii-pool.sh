@@ -27,9 +27,29 @@ KEY="${1:-}"
 command -v curl >/dev/null || err "curl is required (apt install curl)"
 command -v systemctl >/dev/null || err "systemd is required"
 
+info "Pre-flight safety checks..."
+
 if [ -f "$INSTALL_DIR/data/geth/chaindata/CURRENT" ] 2>/dev/null || systemctl is-active --quiet ethii-node 2>/dev/null; then
   err "existing ETHII install detected. To reinstall: systemctl stop ethii-stratum ethii-node; back up $INSTALL_DIR (especially pool-keystore.json + pool-password.txt) and remove it first."
 fi
+
+for f in /etc/systemd/system/ethii-node.service /etc/systemd/system/ethii-stratum.service; do
+  if [ -e "$f" ]; then
+    err "found existing $f — this server already has an ETHII install. Nothing was changed. Remove or back up the old install first."
+  fi
+done
+
+BUSY=""
+for p in 30303 3333 3334 3336 8082 8545; do
+  if ss -lntu 2>/dev/null | awk '{print $5}' | grep -Eq "[:.]$p\$"; then
+    BUSY="$BUSY $p"
+  fi
+done
+if [ -n "$BUSY" ]; then
+  err "port(s)$BUSY already in use on this server — another node, pool, or service is using them. Nothing was installed. Free those ports or use a dedicated server. (Check with: ss -lntup)"
+fi
+
+info "Pre-flight checks passed — server is clean for install."
 
 mkdir -p "$INSTALL_DIR"
 
