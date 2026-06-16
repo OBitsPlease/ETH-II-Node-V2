@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$EthiiExe = Join-Path $RepoRoot 'ethii.exe'
+$EthiiExe = Join-Path $RepoRoot 'ethii-windows-amd64.exe'
 $Genesis = Join-Path $RepoRoot 'genesis.json'
 $StaticNodes = Join-Path $RepoRoot 'p2p\static-nodes.json'
 $TrustedNodes = Join-Path $RepoRoot 'p2p\trusted-nodes.json'
