@@ -108,7 +108,7 @@ After=network.target
 Type=simple
 Restart=always
 RestartSec=10
-ExecStart=$INSTALL_DIR/ethii --datadir $INSTALL_DIR/data --networkid $NETWORK_ID --syncmode full --snapshot=false --state.scheme hash --http --http.addr 127.0.0.1 --http.port 8545 --http.api eth,net,web3,miner --miner.pending.feeRecipient $POOL_ADDR --bootnodes $BOOTNODES --maxpeers 50
+ExecStart=$INSTALL_DIR/ethii --datadir $INSTALL_DIR/data --networkid $NETWORK_ID --syncmode full --snapshot=false --state.scheme hash --http --http.addr 127.0.0.1 --http.port 8545 --http.api eth,net,web3,miner,ethash --miner.pending.feeRecipient $POOL_ADDR --bootnodes $BOOTNODES --maxpeers 50
 ExecStartPost=/usr/local/bin/ethii-miner-start.sh
 StandardOutput=journal
 StandardError=journal
