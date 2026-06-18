@@ -1,0 +1,26 @@
+# Runtime data
+*.log
+*.out
+*.pid
+*.tar
+*.tar.gz
+*.zip
+
+# Chain data
+chaindata/
+ancient/
+geth/
+ethii-data/
+
+# Secrets / local overrides
+*.key
+*.pem
+*.env
+wallet/
+payout.json
+workers.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
