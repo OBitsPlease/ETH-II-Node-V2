@@ -75,7 +75,25 @@ info "Generating pool wallet..."
 POOL_ADDR="$(python3 -c "import json;print('0x'+json.load(open('$INSTALL_DIR/pool-keystore.json'))['address'])" 2>/dev/null)" \
   || POOL_ADDR="0x$(grep -o '"address":"[0-9a-fA-F]*"' "$INSTALL_DIR/pool-keystore.json" | cut -d'"' -f4)"
 [ -n "$POOL_ADDR" ] && [ "$POOL_ADDR" != "0x" ] || err "could not read pool wallet address"
-info "Pool wallet: $POOL_ADDR"
+
+echo
+echo "╔════════════════════════════════════════════════════════════════════╗"
+echo "║  POOL WALLET CREATED - SAVE THIS INFORMATION IMMEDIATELY          ║"
+echo "╚════════════════════════════════════════════════════════════════════╝"
+echo
+echo "  Pool Wallet Address: $POOL_ADDR"
+echo
+echo "  Files (BACK UP OFF-SERVER IMMEDIATELY):"
+echo "    - Keystore: $INSTALL_DIR/pool-keystore.json"
+echo "    - Password: $INSTALL_DIR/pool-password.txt"
+echo
+echo "  Without these files, you cannot pay your miners or recover funds."
+echo
+
+read -p "  Have you saved/backed up these files? Type 'yes' to continue: " confirm
+if [ "$confirm" != "yes" ]; then
+  err "Setup cancelled. Please back up your wallet files first."
+fi
 
 info "Writing default payout config (PPLNS, 0.1 ETHII minimum)..."
 cat > "$INSTALL_DIR/payout.json" <<EOF
@@ -159,6 +177,55 @@ OnUnitActiveSec=2min
 [Install]
 WantedBy=timers.target
 EOF
+
+info "Creating pool information files..."
+cat > "$INSTALL_DIR/POOL-INFO.txt" <<EOF
+═══════════════════════════════════════════════════════════════════
+  ETHII POOL OPERATOR INFO
+═══════════════════════════════════════════════════════════════════
+
+Pool Wallet Address: $POOL_ADDR
+  This address receives all block mining rewards.
+  Miners are paid from this wallet based on their shares (PPLNS).
+
+Keystore File: $INSTALL_DIR/pool-keystore.json
+Password File: $INSTALL_DIR/pool-password.txt
+  ⚠️  KEEP THESE SAFE - They control all pool funds!
+  Back them up to a secure location off this server.
+
+Pool Connection:
+  Standard Miners:        YOUR_IP:3335
+  Low-Difficulty (<100MH/s): YOUR_IP:3334
+  Innosilicon A10 ASIC:   YOUR_IP:3336
+  Dashboard:              http://YOUR_IP:8082
+
+Miner Connection Format:
+  stratum+tcp://YOUR_IP:3335
+  username: MINER_WALLET_ADDRESS (their own ETH address)
+  password: x
+
+Documentation: /opt/ethii/POOL-OPERATORS.md
+Help: Contact ETHII team or check GitHub
+
+═══════════════════════════════════════════════════════════════════
+EOF
+
+cat > "$INSTALL_DIR/MINERS-CONNECT-HERE.txt" <<EOF
+MINERS - Connect to this pool:
+
+Pool: $POOL_ADDR (Port 3335)
+Address: YOUR_IP:3335
+
+Example (lolMiner):
+  lolMiner --algo ETHASH --pool YOUR_IP:3335 --user 0xYOUR_WALLET_ADDRESS
+
+Example (Rigel):
+  rigel --pool stratum+tcp://YOUR_IP:3335 --wallet 0xYOUR_WALLET_ADDRESS
+
+Dashboard: http://YOUR_IP:8082
+EOF
+
+chmod 644 "$INSTALL_DIR/POOL-INFO.txt" "$INSTALL_DIR/MINERS-CONNECT-HERE.txt"
 
 info "Starting services..."
 systemctl daemon-reload
