@@ -76,24 +76,11 @@ POOL_ADDR="$(python3 -c "import json;print('0x'+json.load(open('$INSTALL_DIR/poo
   || POOL_ADDR="0x$(grep -o '"address":"[0-9a-fA-F]*"' "$INSTALL_DIR/pool-keystore.json" | cut -d'"' -f4)"
 [ -n "$POOL_ADDR" ] && [ "$POOL_ADDR" != "0x" ] || err "could not read pool wallet address"
 
-echo
-echo "╔════════════════════════════════════════════════════════════════════╗"
-echo "║  POOL WALLET CREATED - SAVE THIS INFORMATION IMMEDIATELY          ║"
-echo "╚════════════════════════════════════════════════════════════════════╝"
-echo
-echo "  Pool Wallet Address: $POOL_ADDR"
-echo
-echo "  Files (BACK UP OFF-SERVER IMMEDIATELY):"
-echo "    - Keystore: $INSTALL_DIR/pool-keystore.json"
-echo "    - Password: $INSTALL_DIR/pool-password.txt"
-echo
-echo "  Without these files, you cannot pay your miners or recover funds."
-echo
-
-read -p "  Have you saved/backed up these files? Type 'yes' to continue: " confirm
-if [ "$confirm" != "yes" ]; then
-  err "Setup cancelled. Please back up your wallet files first."
-fi
+info "Pool wallet generated: $POOL_ADDR"
+info "Wallet files:"
+info "  Keystore: $INSTALL_DIR/pool-keystore.json"
+info "  Password: $INSTALL_DIR/pool-password.txt"
+info "  ⚠️  Back up these files immediately (SCP off-server)"
 
 info "Writing default payout config (PPLNS, 0.1 ETHII minimum)..."
 cat > "$INSTALL_DIR/payout.json" <<EOF
