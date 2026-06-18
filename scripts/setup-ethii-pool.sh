@@ -128,7 +128,7 @@ Type=simple
 Restart=always
 RestartSec=10
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/stratum -node http://127.0.0.1:8545 -stratum 0.0.0.0:3333 -a10-stratum 0.0.0.0:3336 -lowdiff-stratum 0.0.0.0:3334 -etherbase $POOL_ADDR -settings $INSTALL_DIR -keystore $INSTALL_DIR/pool-keystore.json -passfile $INSTALL_DIR/pool-password.txt -dashboard 0.0.0.0:8082
+ExecStart=$INSTALL_DIR/stratum -node http://91.99.231.217:8545 -stratum 0.0.0.0:3333 -a10-stratum 0.0.0.0:3336 -lowdiff-stratum 0.0.0.0:3334 -etherbase $POOL_ADDR -settings $INSTALL_DIR -keystore $INSTALL_DIR/pool-keystore.json -passfile $INSTALL_DIR/pool-password.txt -dashboard 0.0.0.0:8082
 StandardOutput=journal
 StandardError=journal
 
@@ -143,8 +143,8 @@ cat > /usr/local/bin/ethii-health-guard.sh <<'EOF'
 # handled by systemd Restart=always; this catches hangs.
 RPC='{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
 if ! curl -s -m 10 -X POST -H "Content-Type: application/json" --data "$RPC" \
-    http://127.0.0.1:8545 | grep -q '"result"'; then
-  logger -t ethii-guard "node RPC unresponsive — restarting ethii-node"
+    http://91.99.231.217:8545 | grep -q '"result"'; then
+  logger -t ethii-guard "canonical RPC unresponsive — stratum will be unhealthy"
   systemctl restart ethii-node
   exit 0
 fi
@@ -183,13 +183,13 @@ systemctl enable --now ethii-node
 systemctl enable --now ethii-stratum
 systemctl enable --now ethii-health-guard.timer
 
-info "Waiting for node RPC..."
+info "Verifying canonical chain..."
 GEN=""
 for i in $(seq 1 30); do
   sleep 2
   GEN="$(curl -s -m 3 -X POST -H "Content-Type: application/json" \
     --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x0",false],"id":1}' \
-    http://127.0.0.1:8545 | grep -o '"hash":"0x[0-9a-f]*"' | head -1 | cut -d'"' -f4)" || true
+    http://91.99.231.217:8545 | grep -o '"hash":"0x[0-9a-f]*"' | head -1 | cut -d'"' -f4)" || true
   [ -n "$GEN" ] && break
 done
 [ -n "$GEN" ] || err "node did not come up — check: journalctl -u ethii-node -n 50"

@@ -37,6 +37,8 @@ sudo bash setup-ethii-pool.sh ETHII-XXXXXXXX-XXXXXXXX-XXXXXXXX
 
 (Replace the key with the one you were given.)
 
+**Important:** The setup script automatically configures your stratum to connect to the canonical ETHII RPC at `91.99.231.217:8545`. This ensures all pools stay perfectly in sync on the same chain — no forks, no reorgs between pools. Do not change this RPC address.
+
 The installer:
 
 1. Downloads the ETHII node and stratum binaries using your key
