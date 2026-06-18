@@ -38,3 +38,6 @@ monitor-loop-asic-gpu.csv
 # Node
 node_modules/
 dist/
+
+.claude/settings.local.json
+*.exe
