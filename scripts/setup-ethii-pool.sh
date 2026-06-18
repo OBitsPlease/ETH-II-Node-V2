@@ -79,7 +79,7 @@ info "Pool wallet: $POOL_ADDR"
 
 info "Writing default payout config (PPLNS, 0.1 ETHII minimum)..."
 cat > "$INSTALL_DIR/payout.json" <<EOF
-{"miningAddress":"","minPayment":0.1,"mode":"pplns","pplnsWindow":1200}
+{"miningAddress":"$POOL_ADDR","minPayment":0.1,"mode":"pplns","pplnsWindow":1200}
 EOF
 
 info "Installing systemd services..."
