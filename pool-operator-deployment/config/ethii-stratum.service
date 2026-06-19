@@ -1,0 +1,16 @@
+[Unit]
+Description=ETHII Stratum Mining Pool
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+User=root
+WorkingDirectory=/root
+ExecStart=/root/stratum -node http://91.99.231.217:8545 -stratum 0.0.0.0:3335 -a10-stratum 0.0.0.0:3336 -lowdiff-stratum 0.0.0.0:3334 -etherbase 0xbAA2144072f96b162017D47efdA18159Cba566e9 -settings /root -keystore /root/pool-keystore.json -passfile /root/pool-password.txt -dashboard 0.0.0.0:8082
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
