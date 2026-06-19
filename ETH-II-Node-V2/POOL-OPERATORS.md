@@ -2,6 +2,17 @@
 
 **Run your own ETHII mining pool — complete setup in one command.**
 
+## ⚠️ Important: Everyone Uses One Chain (No Pool Forks)
+
+ETHII operates with **ONE canonical RPC node** that all pools connect to. This ensures:
+- **All pools stay perfectly in sync** — no chain forks between pools
+- **Miners on different pools get paid for the same blocks** — no orphaned work
+- **You cannot run your own chain** — the pool connects to EU VPS RPC (91.99.231.217:8545)
+
+The setup script automatically configures this. **Do not change the RPC endpoint.** If you do, your pool will fork off and miners won't get paid.
+
+---
+
 This guide helps you set up a mining pool on a Linux server. The installer will:
 - Download the ETHII node and pool software
 - Create your pool wallet automatically
@@ -251,13 +262,19 @@ Share the output with the ETHII team.
 
 ## Important Notes
 
-### Do NOT Change These
+### ⚠️ Do NOT Change These (Critical for Network Consensus)
 
-- **RPC endpoint:** Always `91.99.231.217:8545` (canonical node) — don't change it
+- **RPC endpoint:** ALWAYS `91.99.231.217:8545` (EU canonical node) 
+  - **DO NOT point to localhost, your own node, or any other RPC**
+  - **Changing this breaks your pool off the main chain** — miners won't get paid
+  - Your pool can ONLY work by connecting to the canonical EU RPC
+  
 - **Network ID:** Always 20482
-- **Payouts:** Fully automatic via stratum — don't modify
+  - Don't change it, don't create a new chain, don't fork
 
-Changing these breaks the network consensus.
+- **Payouts:** Fully automatic via stratum — don't modify payout logic
+
+**Why?** ETHII has ONE shared chain. All pools must use the same RPC to stay in sync. If your pool runs on a different RPC endpoint, it will be on a different chain and orphan all blocks/shares.
 
 ### Miner Connection Ports
 
