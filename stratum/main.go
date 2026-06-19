@@ -466,6 +466,34 @@ func recordShare(worker string, valid bool) {
 	}
 }
 
+func recordBlockFound(worker string) {
+	latestHex := rpcHexString("eth_blockNumber", nil)
+	latestNum := hexToUint64(latestHex)
+
+	blockFound := map[string]interface{}{
+		"worker":    worker,
+		"blockNum":  latestNum + 1,
+		"timestamp": time.Now().Unix(),
+	}
+
+	filePath := "/root/block-finders.json"
+	var blocks []map[string]interface{}
+
+	if data, err := os.ReadFile(filePath); err == nil {
+		json.Unmarshal(data, &blocks)
+	}
+
+	blocks = append(blocks, blockFound)
+	if len(blocks) > 10000 {
+		blocks = blocks[len(blocks)-10000:]
+	}
+
+	if data, err := json.MarshalIndent(blocks, "", "  "); err == nil {
+		os.WriteFile(filePath, data, 0644)
+		log.Printf("[block-found] %s found block %d", worker, blockFound["blockNum"])
+	}
+}
+
 func countHistoricalPoolBlockRecords(minerAddress string) ([]BlockRecord, error) {
 	minerAddress = strings.ToLower(strings.TrimSpace(minerAddress))
 	if minerAddress == "" {
@@ -1259,6 +1287,7 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster, mode stratumMode) {
 				} else {
 					incMinerAccepted(subID)
 					recordShare(m.workerID, true)
+					recordBlockFound(m.workerID)
 					log.Printf("    [BLOCK] Share accepted from %s", m.workerID)
 					m.send(stratumMsg{ID: msg.ID, Result: true, Error: nil})
 				}
@@ -1310,6 +1339,7 @@ func handleMiner(conn net.Conn, wb *WorkBroadcaster, mode stratumMode) {
 				} else {
 					incMinerAccepted(subID)
 					recordShare(m.workerID, true)
+					recordBlockFound(m.workerID)
 					log.Printf("    [BLOCK] Share accepted from %s", m.workerID)
 					m.send(stratumMsg{ID: msg.ID, Result: true, Error: nil})
 				}

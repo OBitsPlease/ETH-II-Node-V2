@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETH II Pool - Miners</title>
+<style>
+:root{--bg:#07080f;--surface:#0d0f1e;--surface2:#13172b;--border:#1e2545;--ac:#7b4fff;--ac2:#3b9eff;--text:#e2e8f8;--muted:#8090b8;--green:#22d98a;--yellow:#f5c842;--red:#ff4f6e;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;}
+a{color:var(--ac2);text-decoration:none;}
+header{background:linear-gradient(135deg,#0d0f22,#130d2a);border-bottom:1px solid var(--border);padding:0 28px;display:flex;align-items:center;gap:16px;height:64px;position:sticky;top:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-img{width:40px;height:40px;object-fit:contain;}
+.logo-name{font-size:1.2rem;font-weight:700;letter-spacing:.04em;}
+.logo-name span{color:var(--ac2);}
+nav{margin-left:auto;display:flex;gap:4px;}
+nav a{color:var(--muted);font-size:.85rem;padding:7px 14px;border-radius:7px;transition:all .15s;}
+nav a:hover,nav a.active{background:var(--surface2);color:var(--text);}
+.container{max-width:1200px;margin:0 auto;padding:28px 24px;}
+.page-title{font-size:1.5rem;font-weight:700;margin-bottom:4px;}
+.page-title span{background:linear-gradient(90deg,var(--ac),var(--ac2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.page-sub{color:var(--muted);font-size:.875rem;margin-bottom:20px;}
+.search-row{display:flex;gap:10px;margin-bottom:20px;align-items:center;}
+.search-wrap{position:relative;flex:1;max-width:600px;}
+.search-wrap svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:16px;height:16px;fill:var(--muted);pointer-events:none;}
+#addr-search{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 14px 10px 38px;color:var(--text);font-size:.875rem;font-family:monospace;outline:none;transition:border-color .15s;}
+#addr-search:focus{border-color:var(--ac2);}
+#addr-search::placeholder{font-family:'Segoe UI',system-ui,sans-serif;color:var(--muted);}
+#clear-btn{display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.8rem;padding:9px 14px;cursor:pointer;white-space:nowrap;transition:all .15s;}
+#clear-btn:hover{color:var(--text);border-color:var(--ac2);}
+.filter-banner{display:none;background:rgba(59,158,255,.08);border:1px solid rgba(59,158,255,.25);border-radius:9px;padding:10px 16px;font-size:.85rem;color:var(--muted);margin-bottom:16px;}
+.filter-banner strong{color:var(--ac2);}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+table{width:100%;border-collapse:collapse;font-size:.875rem;}
+thead th{background:var(--surface2);color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;padding:11px 16px;text-align:left;font-weight:600;border-bottom:1px solid var(--border);}
+tbody tr{border-bottom:1px solid var(--border);}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--surface2);}
+td{padding:12px 16px;}
+.addr{font-family:monospace;font-size:.8rem;color:var(--ac2);}
+.hashrate{color:var(--green);font-weight:600;}
+.muted{color:var(--muted);font-size:.8rem;}
+.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.72rem;font-weight:600;}
+.pill.pool{background:rgba(59,158,255,.15);color:var(--ac2);}
+.pill.solo{background:rgba(123,79,255,.2);color:#a78bfa;}
+.empty{color:var(--muted);font-size:.85rem;padding:24px;text-align:center;}
+footer{border-top:1px solid var(--border);padding:20px 28px;text-align:center;color:var(--muted);font-size:.8rem;margin-top:40px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><div class="logo-hex">E2</div><div class="logo-name">ETH <span>II</span> Pool</div></div>
+  <nav>
+    <a href="pool.html">Dashboard</a>
+    <a href="pool-miners.html" class="active">Miners</a>
+    <a href="pool-blocks.html">Blocks</a>
+    <a href="pool-ledger.html">Ledger</a>
+    <a href="pool-connect.html">Get Connected</a>
+  </nav>
+</header>
+<div class="container">
+  <div class="page-title"><span>Active Miners</span></div>
+  <p class="page-sub">All miners currently connected to the pool &mdash; refreshes every 30 seconds</p>
+
+  <div class="search-row">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <input id="addr-search" type="text" placeholder="Filter by wallet address (0x...)" autocomplete="off" spellcheck="false">
+    </div>
+    <button id="clear-btn" onclick="clearFilter()">Clear filter</button>
+  </div>
+  <div class="filter-banner" id="filter-banner">
+    Showing miners for: <strong id="filter-label"></strong>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Address</th><th>Worker</th><th>Mode</th><th>Hashrate</th><th>Accepted</th><th>Rejected</th><th>Connected</th><th>Last Seen</th></tr></thead>
+      <tbody id="t-miners"><tr><td colspan="8" class="empty">Loading&hellip;</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<footer>ETH II Mining Pool &nbsp;&middot;&nbsp; Chain ID 20482 &nbsp;&middot;&nbsp; <a href="/explorer.html">Block Explorer</a></footer>
+<script>
+function fmtH(mhs){if(!mhs||mhs<=0)return"0 H/s";if(mhs>=1e6)return(mhs/1e6).toFixed(2)+" TH/s";if(mhs>=1000)return(mhs/1000).toFixed(2)+" GH/s";if(mhs>=1)return mhs.toFixed(2)+" MH/s";if(mhs>=0.001)return(mhs*1000).toFixed(2)+" KH/s";return(mhs*1e6).toFixed(0)+" H/s";}
+function fmtT(iso){if(!iso)return"";const s=Math.floor((Date.now()-new Date(iso))/1000);if(s<60)return s+"s ago";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";return new Date(iso).toLocaleDateString();}
+function short(a){return a?a.slice(0,10)+"\u2026"+a.slice(-6):"";}
+
+let allMiners = [];
+let filterAddr = "";
+
+function getFilter(){return document.getElementById("addr-search").value.trim().toLowerCase();}
+
+function render(){
+  const f = getFilter();
+  const rows = f ? allMiners.filter(m => m.address && m.address.toLowerCase().includes(f)) : allMiners;
+  const tb = document.getElementById("t-miners");
+  const banner = document.getElementById("filter-banner");
+  const clearBtn = document.getElementById("clear-btn");
+  const label = document.getElementById("filter-label");
+
+  if(f){
+    banner.style.display = "block";
+    clearBtn.style.display = "block";
+    label.textContent = f;
+    // Save to URL
+    const url = new URL(window.location);
+    url.searchParams.set("address", f);
+    history.replaceState(null,"",url);
+  } else {
+    banner.style.display = "none";
+    clearBtn.style.display = "none";
+    const url = new URL(window.location);
+    url.searchParams.delete("address");
+    history.replaceState(null,"",url);
+  }
+
+  tb.innerHTML = rows.length ? rows.map(m =>
+    "<tr><td class=\"addr\" title=\""+m.address+"\">"+short(m.address)+"</td>"
+    +"<td style=\"color:var(--text)\">"+m.worker+"</td>"
+    +"<td>"+(m.solo?"<span class=\"pill solo\">Solo</span>":"<span class=\"pill pool\">Pool</span>")+"</td>"
+    +"<td class=\"hashrate\">"+fmtH(m.hashrate)+"</td>"
+    +"<td>"+m.accepted+"</td><td class=\"muted\">"+m.rejected+"</td>"
+    +"<td class=\"muted\">"+fmtT(m.connectedAt)+"</td>"
+    +"<td class=\"muted\">"+fmtT(m.lastSeen)+"</td></tr>"
+  ).join("") : "<tr><td colspan=\"8\" class=\"empty\">"+(f?"No miners found for that address.":"No miners currently connected.")+"</td></tr>";
+}
+
+function clearFilter(){
+  document.getElementById("addr-search").value = "";
+  render();
+}
+
+async function load(){
+  try{
+    const r = await fetch("/api/miners");
+    const ma = await r.json();
+    allMiners = Array.isArray(ma) ? ma : [ma];
+    render();
+  } catch(e){}
+}
+
+// Init: read ?address= from URL
+const urlAddr = new URLSearchParams(window.location.search).get("address") || "";
+if(urlAddr) document.getElementById("addr-search").value = urlAddr;
+document.getElementById("addr-search").addEventListener("input", render);
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

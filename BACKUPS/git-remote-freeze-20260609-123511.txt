@@ -1,0 +1,14 @@
+[C:\Users\tourj\ETHII ETH2]
+origin	https://github.com/OBitsPlease/ETH-II-Wallet-V2.git (fetch)
+origin	https://github.com/OBitsPlease/ETH-II-Wallet-V2.git (push)
+wallet-release	https://github.com/OBitsPlease/ETH-II-Wallet-V2.git (fetch)
+wallet-release	https://github.com/OBitsPlease/ETH-II-Wallet-V2.git (push)
+
+[C:\Users\tourj\ETHII ETH2\ETH-II-Wallet]
+origin	https://github.com/OBitsPlease/ETH-II-Wallet.git (fetch)
+origin	https://github.com/OBitsPlease/ETH-II-Wallet.git (push)
+
+[C:\Users\tourj\ETHII ETH2\ETH-II-NODE-ONLY]
+origin	https://github.com/OBitsPlease/ETH-II-Data-for-Public-Pools.git (fetch)
+origin	https://github.com/OBitsPlease/ETH-II-Data-for-Public-Pools.git (push)
+

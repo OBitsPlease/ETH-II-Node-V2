@@ -1,0 +1,8 @@
+[Unit]
+Description=ETHII Health Guard (non-destructive)
+After=network.target
+
+[Service]
+Type=oneshot
+Environment=ETHII_ROLE=node
+ExecStart=/usr/local/bin/ethii-health-guard.sh

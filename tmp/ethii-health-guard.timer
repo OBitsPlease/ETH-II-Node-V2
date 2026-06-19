@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ETHII Health Guard every 2 minutes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=120s
+Unit=ethii-health-guard.service
+
+[Install]
+WantedBy=timers.target

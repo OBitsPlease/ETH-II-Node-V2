@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Block Explorer — ETH II</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .explorer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media(max-width:900px){ .explorer-grid { grid-template-columns: 1fr; } }
+    .detail-panel { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 1.5rem; display: none; }
+    .detail-panel.visible { display: block; }
+    .detail-row { display: flex; gap: 1rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border); align-items: flex-start; }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key { font-family: var(--font-heading); font-size: 0.78rem; letter-spacing: 0.06em; color: var(--text3); min-width: 140px; padding-top: 0.1rem; }
+    .detail-val { font-family: var(--font-mono); font-size: 0.84rem; color: var(--text); word-break: break-all; flex: 1; }
+    .block-link { color: var(--orange); text-decoration: none; font-family: var(--font-mono); }
+    .block-link:hover { text-decoration: underline; }
+    .tx-link { color: var(--blue); text-decoration: none; font-family: var(--font-mono); font-size: 0.82rem; }
+    .tx-link:hover { text-decoration: underline; }
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 0.4rem; color: var(--text2);
+      font-family: var(--font-heading); font-size: 0.78rem; letter-spacing: 0.06em;
+      text-transform: uppercase; cursor: pointer; margin-bottom: 1.25rem;
+      transition: color 0.2s;
+    }
+    .back-btn:hover { color: var(--orange); }
+    .pager-btn {
+      background: var(--bg2); color: var(--text2); border: 1px solid var(--border);
+      font-family: var(--font-heading); font-size: 0.74rem; letter-spacing: 0.06em;
+      text-transform: uppercase; cursor: pointer; padding: 0.4rem 0.9rem; border-radius: 4px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .pager-btn:hover:not(:disabled) { color: var(--orange); border-color: var(--orange); }
+    .pager-btn:disabled { opacity: 0.35; cursor: default; }
+    #view-block, #view-tx, #view-addr { display: none; }
+    .wallet-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .wallet-meta {
+      font-size: 0.72rem;
+      color: var(--text2);
+      font-family: var(--font-heading);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .wallet-meta b { color: var(--orange); }
+    .wallet-filter-wrap {
+      min-width: 260px;
+      flex: 1;
+      max-width: 480px;
+    }
+    .wallet-filter {
+      width: 100%;
+      padding: 0.55rem 0.75rem;
+      border-radius: 4px;
+      border: 1px solid var(--border2);
+      background: var(--bg2);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      outline: none;
+    }
+    .wallet-filter:focus { border-color: var(--orange); }
+    .wallet-filter::placeholder { color: var(--text3); }
+    .wallet-row-link {
+      color: var(--blue);
+      text-decoration: none;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+    .wallet-row-link:hover { text-decoration: underline; }
+    .wallet-balance {
+      color: var(--green);
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+    .wallet-type {
+      font-size: 0.72rem;
+      padding: 0.16rem 0.45rem;
+      border-radius: 3px;
+      font-family: var(--font-heading);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      display: inline-block;
+    }
+    .wallet-type.wallet { background: rgba(0,212,255,0.15); color: var(--blue); }
+    .wallet-type.contract { background: rgba(255,215,0,0.15); color: var(--gold); }
+    .richlist-rank {
+      font-family: var(--font-display);
+      font-size: 0.9rem;
+      color: var(--orange);
+      font-weight: 900;
+    }
+    .explorer-shell {
+      display: grid;
+      gap: 1.5rem;
+    }
+    .overview-strip {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 1.5rem;
+      align-items: stretch;
+    }
+    .overview-hero {
+      background:
+        linear-gradient(135deg, rgba(255,107,26,0.16), rgba(0,212,255,0.06)),
+        radial-gradient(circle at top right, rgba(255,215,0,0.15), transparent 42%),
+        var(--bg3);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 1.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .overview-hero::after {
+      content: '';
+      position: absolute;
+      inset: auto -80px -90px auto;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,212,255,0.12), transparent 65%);
+      pointer-events: none;
+    }
+    .overview-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-family: var(--font-heading);
+      font-size: 0.74rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin-bottom: 0.8rem;
+    }
+    .overview-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      line-height: 1.02;
+      margin-bottom: 0.9rem;
+    }
+    .overview-copy {
+      max-width: 52ch;
+      color: var(--text2);
+      font-size: 0.95rem;
+      margin-bottom: 1rem;
+    }
+    .overview-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+    }
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(4,4,14,0.45);
+      font-family: var(--font-heading);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text2);
+    }
+    .overview-side {
+      display: grid;
+      gap: 1rem;
+    }
+    .mini-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+    .mini-stat {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      min-height: 108px;
+    }
+    .mini-stat-label {
+      font-family: var(--font-heading);
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 0.65rem;
+    }
+    .mini-stat-value {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      color: var(--text);
+      font-weight: 900;
+      line-height: 1.05;
+      word-break: break-word;
+    }
+    .mini-stat-sub {
+      font-size: 0.76rem;
+      color: var(--text2);
+      margin-top: 0.45rem;
+    }
+    .data-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 1.5rem;
+    }
+    .stack-grid {
+      display: grid;
+      gap: 1.5rem;
+    }
+    .table-note {
+      color: var(--text3);
+      font-size: 0.74rem;
+      font-family: var(--font-heading);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0 1.25rem 0.9rem;
+    }
+    .tx-value {
+      color: var(--green);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+    .hero-search {
+      max-width: 560px;
+    }
+    @media(max-width:1100px) {
+      .overview-strip,
+      .data-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media(max-width:700px) {
+      .mini-stat-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html" class="nav-logo">ETH II</a>
+  <ul class="nav-links">
+    <li><a href="index.html#section-1">HERO</a></li>
+    <li><a href="index.html#section-2">WHY</a></li>
+    <li><a href="index.html#section-3">STATS</a></li>
+    <li><a href="wallet.html">WALLET</a></li>
+    <li><a href="pool.html">POOL</a></li>
+    <li><a href="explorer.html" class="active">EXPLORER</a></li>
+    <li><a href="index.html#section-5">EXPLORE</a></li>
+    <li><a href="index.html#section-6">CHAIN</a></li>
+    <li><a href="pool.html" class="nav-cta">MINE NOW</a></li>
+  </ul>
+</nav>
+
+<div class="page-header">
+  <div class="container">
+    <div class="section-label" style="justify-content:center;display:flex">On-Chain Data</div>
+    <h1 class="section-title">BLOCK <span style="color:var(--orange)">EXPLORER</span></h1>
+    <div style="max-width:680px;margin:1.25rem auto 0">
+      <div class="search-row">
+        <input class="input" id="search-input" type="text" placeholder="Search block number, tx hash, or wallet address…">
+        <button class="btn btn-primary" onclick="doSearch()">Search</button>
+      </div>
+      <div id="search-status" style="margin-top:0.6rem;color:var(--text2);font-size:0.78rem;font-family:var(--font-heading);letter-spacing:0.04em">Build 2026-05-30a</div>
+    </div>
+  </div>
+</div>
+
+<div style="padding:3rem 0">
+  <div class="container">
+
+    <!-- Main list view -->
+    <div id="view-list">
+      <div class="explorer-shell">
+        <div class="overview-strip">
+          <div class="overview-hero">
+            <div class="overview-kicker"><span class="live-dot"></span> Live chain index</div>
+            <div class="overview-title">ETH II Chain Explorer</div>
+            <div class="overview-copy">An explorer-first view of blocks, transactions, tracked wallet balances, and the current rich list for Chain ID 20482.</div>
+            <div class="hero-search">
+              <div class="search-row">
+                <input class="input" id="search-input-secondary" type="text" placeholder="Jump to a block, tx hash, or wallet address…">
+                <button class="btn btn-primary" onclick="doSearchFromSecondary()">Open</button>
+              </div>
+            </div>
+            <div class="overview-meta" style="margin-top:1rem">
+              <span class="meta-pill">Chain ID 20482</span>
+              <span class="meta-pill">5 ETH II reward</span>
+              <span class="meta-pill">Updated <span id="hero-last-updated">—</span></span>
+            </div>
+          </div>
+
+          <div class="overview-side">
+            <div class="mini-stat-grid">
+              <div class="mini-stat">
+                <div class="mini-stat-label">Block Height</div>
+                <div class="mini-stat-value" id="ov-block">—</div>
+                <div class="mini-stat-sub">Latest indexed block</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">Peers</div>
+                <div class="mini-stat-value" id="ov-peers">—</div>
+                <div class="mini-stat-sub">Connected ETH II peers</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">Network Hashrate</div>
+                <div class="mini-stat-value" id="ov-hashrate">—</div>
+                <div class="mini-stat-sub">From live chain stats</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">Difficulty</div>
+                <div class="mini-stat-value" id="ov-difficulty">—</div>
+                <div class="mini-stat-sub">Current block difficulty</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">Tracked Active Wallets</div>
+                <div class="mini-stat-value" id="ov-wallets">—</div>
+                <div class="mini-stat-sub">Discovered via activity + seed addresses</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">Top Wallet</div>
+                <div class="mini-stat-value" id="ov-top-wallet">—</div>
+                <div class="mini-stat-sub" id="ov-top-balance">Balance unavailable</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="data-grid">
+          <div class="stack-grid">
+            <div class="panel">
+              <div class="panel-header"><span class="live-dot"></span> Latest Transactions</div>
+              <div class="table-note">Newest confirmed transactions assembled from recent block detail calls</div>
+              <div style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>Hash</th><th>Block</th><th>Value</th><th>Time</th></tr></thead>
+                  <tbody id="tx-list">
+                    <tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">Wallet Directory</div>
+              <div class="wallet-toolbar">
+                <div class="wallet-meta">Showing <b id="wallet-count">0 / 0</b> tracked addresses • Updated <b id="wallet-updated">—</b></div>
+                <div class="wallet-filter-wrap">
+                  <input id="wallet-filter" class="wallet-filter" type="text" placeholder="Filter by wallet address (0x...)">
+                </div>
+              </div>
+              <div style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>Address</th><th>Balance</th><th>Txns</th><th>Type</th></tr></thead>
+                  <tbody id="wallet-list">
+                    <tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack-grid">
+            <div class="panel">
+              <div class="panel-header">Latest Blocks</div>
+              <div class="table-note">Fast block overview with miner, age, and transaction count</div>
+              <div style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>#</th><th>Age</th><th>Txns</th><th>Miner</th></tr></thead>
+                  <tbody id="blocks-list">
+                    <tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style="text-align:center;padding:0.75rem;border-top:1px solid var(--border)">
+                <a href="#" onclick="loadMoreBlocks();return false" style="color:var(--orange);font-size:0.82rem;font-family:var(--font-heading);letter-spacing:0.06em">Load more →</a>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">Top 10 Rich List</div>
+              <div class="table-note">Chain-wide ranking when snapshot data exists, recent-address fallback otherwise</div>
+              <div style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>#</th><th>Address</th><th>Balance</th><th>Txns</th></tr></thead>
+                  <tbody id="rich-list">
+                    <tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">Latest Block Details</div>
+              <div class="panel-body" style="padding:0">
+                <div class="detail-row"><span class="detail-key">Block #</span><span class="detail-val" id="latest-num" style="color:var(--orange)">—</span></div>
+                <div class="detail-row"><span class="detail-key">Hash</span><span class="detail-val" id="latest-hash" style="color:var(--text2);font-size:0.75rem">—</span></div>
+                <div class="detail-row"><span class="detail-key">Miner</span><span class="detail-val addr" id="latest-miner">—</span></div>
+                <div class="detail-row"><span class="detail-key">Transactions</span><span class="detail-val" id="latest-txs">—</span></div>
+                <div class="detail-row"><span class="detail-key">Gas Used</span><span class="detail-val" id="latest-gas">—</span></div>
+                <div class="detail-row"><span class="detail-key">Age</span><span class="detail-val" id="latest-age">—</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- end view-list -->
+
+    <!-- Block detail view -->
+    <div id="view-block">
+      <div class="back-btn" onclick="showList()">← Back to Explorer</div>
+      <div class="section-label">Block Details</div>
+      <h2 class="section-title" style="font-size:1.6rem;margin-bottom:1.5rem">Block <span style="color:var(--orange)" id="bd-num">—</span></h2>
+      <div class="panel">
+        <div class="panel-body" style="padding:0">
+          <div class="detail-row"><span class="detail-key">Block Number</span><span class="detail-val" id="bd-number" style="color:var(--orange)">—</span></div>
+          <div class="detail-row"><span class="detail-key">Hash</span><span class="detail-val" id="bd-hash">—</span></div>
+          <div class="detail-row"><span class="detail-key">Parent Hash</span><span class="detail-val" id="bd-parent" style="color:var(--blue);cursor:pointer" onclick="goBlockHash(this.textContent)">—</span></div>
+          <div class="detail-row"><span class="detail-key">Miner</span><span class="detail-val addr" id="bd-miner" style="cursor:pointer" onclick="goAddress(this.textContent)">—</span></div>
+          <div class="detail-row"><span class="detail-key">Timestamp</span><span class="detail-val" id="bd-time">—</span></div>
+          <div class="detail-row"><span class="detail-key">Transactions</span><span class="detail-val" id="bd-txcount">—</span></div>
+          <div class="detail-row"><span class="detail-key">Gas Used</span><span class="detail-val" id="bd-gas">—</span></div>
+          <div class="detail-row"><span class="detail-key">Gas Limit</span><span class="detail-val" id="bd-gaslimit">—</span></div>
+          <div class="detail-row"><span class="detail-key">Difficulty</span><span class="detail-val" id="bd-diff">—</span></div>
+          <div class="detail-row"><span class="detail-key">Size</span><span class="detail-val" id="bd-size">—</span></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:1.5rem">
+        <div class="panel-header">Transactions</div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Hash</th><th>From</th><th>To</th><th>Value</th></tr></thead>
+            <tbody id="bd-txs">
+              <tr><td colspan="4" class="empty">No transactions in this block</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- end view-block -->
+
+    <!-- TX detail view -->
+    <div id="view-tx">
+      <div class="back-btn" onclick="showList()">← Back to Explorer</div>
+      <div class="section-label">Transaction Details</div>
+      <h2 class="section-title" style="font-size:1.4rem;margin-bottom:1.5rem">Transaction</h2>
+      <div class="panel">
+        <div class="panel-body" style="padding:0">
+          <div class="detail-row"><span class="detail-key">Hash</span><span class="detail-val" id="td-hash">—</span></div>
+          <div class="detail-row"><span class="detail-key">Status</span><span class="detail-val" id="td-status">—</span></div>
+          <div class="detail-row"><span class="detail-key">Block</span><span class="detail-val" id="td-block" style="color:var(--orange);cursor:pointer" onclick="goBlock(parseInt(this.textContent))">—</span></div>
+          <div class="detail-row"><span class="detail-key">From</span><span class="detail-val addr" id="td-from" style="cursor:pointer" onclick="goAddress(this.textContent)">—</span></div>
+          <div class="detail-row"><span class="detail-key">To</span><span class="detail-val addr" id="td-to" style="cursor:pointer" onclick="goAddress(this.textContent)">—</span></div>
+          <div class="detail-row"><span class="detail-key">Value</span><span class="detail-val" id="td-value" style="color:var(--green)">—</span></div>
+          <div class="detail-row"><span class="detail-key">Gas Used</span><span class="detail-val" id="td-gasused">—</span></div>
+          <div class="detail-row"><span class="detail-key">Gas Price</span><span class="detail-val" id="td-gasprice">—</span></div>
+          <div class="detail-row"><span class="detail-key">Nonce</span><span class="detail-val" id="td-nonce">—</span></div>
+        </div>
+      </div>
+    </div><!-- end view-tx -->
+
+    <!-- Address detail view -->
+    <div id="view-addr">
+      <div class="back-btn" onclick="showList()">← Back to Explorer</div>
+      <div class="section-label">Address</div>
+      <h2 class="section-title" style="font-size:1.2rem;margin-bottom:1.5rem;word-break:break-all" id="addr-title">—</h2>
+      <div class="panel" style="max-width:600px">
+        <div class="panel-body" style="padding:0">
+          <div class="detail-row"><span class="detail-key">Address</span><span class="detail-val addr" id="ad-addr">—</span></div>
+          <div class="detail-row"><span class="detail-key">Balance</span><span class="detail-val" id="ad-balance" style="color:var(--green)">—</span></div>
+          <div class="detail-row"><span class="detail-key">Transactions</span><span class="detail-val" id="ad-txcount">—</span></div>
+          <div class="detail-row"><span class="detail-key">Type</span><span class="detail-val" id="ad-type">—</span></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:1.5rem">
+        <div class="panel-header">Mined Blocks</div>
+        <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-heading);font-size:0.76rem;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase" id="ad-found-summary">Loading…</div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Block</th><th>Date/Time</th><th>Age</th><th>Txns</th><th>Hash</th></tr></thead>
+            <tbody id="ad-found-blocks">
+              <tr><td colspan="5" class="empty"><span class="spinner"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:1rem;padding:0.7rem;border-top:1px solid var(--border)">
+          <button class="pager-btn" id="ad-blocks-prev" onclick="adBlocksPage(-1)">&larr; Back</button>
+          <span style="font-size:0.78rem;color:var(--text2)" id="ad-blocks-page">—</span>
+          <button class="pager-btn" id="ad-blocks-next" onclick="adBlocksPage(1)">Next &rarr;</button>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:1.5rem">
+        <div class="panel-header">Transactions</div>
+        <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-heading);font-size:0.76rem;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase" id="ad-tx-summary">Loading…</div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Hash</th><th>Block</th><th>Age</th><th>Dir</th><th>From</th><th>To</th><th>Value</th></tr></thead>
+            <tbody id="ad-tx-rows">
+              <tr><td colspan="7" class="empty"><span class="spinner"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:1rem;padding:0.7rem;border-top:1px solid var(--border)">
+          <button class="pager-btn" id="ad-tx-prev" onclick="adTxPage(-1)">&larr; Back</button>
+          <span style="font-size:0.78rem;color:var(--text2)" id="ad-tx-page">—</span>
+          <button class="pager-btn" id="ad-tx-next" onclick="adTxPage(1)">Next &rarr;</button>
+        </div>
+      </div>
+    </div><!-- end view-addr -->
+
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">ETH II</div>
+        <div class="footer-tagline">The pure Proof of Work Ethereum fork.<br>Built for miners. Built to last.</div>
+      </div>
+      <div>
+        <div class="footer-heading">Navigate</div>
+        <ul class="footer-links">
+            <li><a href="index.html#section-1">HERO</a></li>
+            <li><a href="index.html#section-2">WHY</a></li>
+            <li><a href="index.html#section-3">STATS</a></li>
+          <li><a href="wallet.html">WALLET</a></li>
+            <li><a href="pool.html">POOL</a></li>
+            <li><a href="explorer.html">EXPLORER</a></li>
+            <li><a href="index.html#section-5">EXPLORE</a></li>
+            <li><a href="index.html#section-6">CHAIN</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="footer-heading">Chain Info</div>
+        <ul class="footer-links">
+          <li><a href="#">Chain ID: 20482</a></li>
+          <li><a href="#">Block Reward: 5 ETH II</a></li>
+          <li><a href="#">No Halving. Ever.</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2025 ETH II — ETH 2.0 Proof of Work.</span>
+      <span class="chain-pill"><span class="live-dot" style="width:6px;height:6px"></span> Chain ID 20482</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+var blockOffset = 0;
+var walletDirectory = [];
+var walletSnapshot = null;
+
+function setText(id, v) { var el = document.getElementById(id); if(el) el.textContent = v; }
+function setHtml(id, v) { var el = document.getElementById(id); if(el) el.innerHTML = v; }
+function esc(s) { return String(s || '').replace(/[&<>'"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;','"':'&quot;'})[c]; }); }
+
+function ago(ts) {
+  var s = Math.floor(Date.now()/1000 - ts);
+  if (s < 60)   return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400)return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+function shortAddr(a) { if(!a||a.length<12) return a||'—'; return a.slice(0,8)+'…'+a.slice(-4); }
+function numFmt(n)    { return Number(n).toLocaleString(); }
+function hexDec(h)    { return h ? parseInt(h,16) : 0; }
+function formatSnapshotTime(value) {
+  if (!value) return new Date().toLocaleTimeString();
+  var dt = new Date(value);
+  if (isNaN(dt.getTime())) return String(value);
+  return dt.toLocaleString();
+}
+function formatHashrate(h, difficultyHex) {
+  var n = Number(h || 0);
+  if (!isFinite(n) || n <= 0) return '0 H/s';
+
+  // API stats may report hashrate in MH/s (stratum dashboard style) rather than H/s.
+  var diff = hexDec(difficultyHex || '0x0');
+  var likelyMhInput = diff > 1000000000 && n > 100 && n < 1000000;
+  if (likelyMhInput) {
+    if (n >= 1000) return (n / 1000).toFixed(2) + ' GH/s';
+    return n.toFixed(2) + ' MH/s';
+  }
+
+  if (n >= 1000000000) return (n / 1000000000).toFixed(2) + ' GH/s';
+  if (n >= 1000000) return (n / 1000000).toFixed(2) + ' MH/s';
+  if (n >= 1000) return (n / 1000).toFixed(2) + ' KH/s';
+  return n.toFixed(2) + ' H/s';
+}
+function fmtEthValue(v) {
+  if (!v) return '0.0000 ETH II';
+  var n = typeof v === 'string' ? (hexDec(v) / 1e18) : Number(v);
+  if (!isFinite(n)) return '0.0000 ETH II';
+  return n.toFixed(4) + ' ETH II';
+}
+function normalizeSearchValue(raw) {
+  var v = String(raw || '').trim().replace(/\u200B/g, '');
+  if (!v) return '';
+
+  // Accept uppercase 0X prefix and plain hex without 0x.
+  if (/^0X/.test(v)) v = '0x' + v.slice(2);
+  if (/^[0-9a-fA-F]{40}$/.test(v)) v = '0x' + v;
+  if (/^[0-9a-fA-F]{64}$/.test(v)) v = '0x' + v;
+  return v;
+}
+
+function showList()  { document.getElementById('view-list').style.display='block'; document.getElementById('view-block').style.display='none'; document.getElementById('view-tx').style.display='none'; document.getElementById('view-addr').style.display='none'; }
+function showBlock() { document.getElementById('view-list').style.display='none'; document.getElementById('view-block').style.display='block'; document.getElementById('view-tx').style.display='none'; document.getElementById('view-addr').style.display='none'; }
+function showTx()    { document.getElementById('view-list').style.display='none'; document.getElementById('view-block').style.display='none'; document.getElementById('view-tx').style.display='block'; document.getElementById('view-addr').style.display='none'; }
+function showAddr()  { document.getElementById('view-list').style.display='none'; document.getElementById('view-block').style.display='none'; document.getElementById('view-tx').style.display='none'; document.getElementById('view-addr').style.display='block'; }
+
+async function loadBlocks(append) {
+  var tbody = document.getElementById('blocks-list');
+  if (!append) { tbody.innerHTML = '<tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>'; blockOffset = 0; }
+  try {
+    const blocks = await fetch('/api/chain/blocks?count=20').then(r=>r.json());
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">No blocks found</td></tr>';
+      return;
+    }
+    var rows = blocks.map(function(b){
+      return '<tr>' +
+        '<td><a class="block-link" onclick="goBlock(' + b.number + ');return false" href="#">#' + numFmt(b.number) + '</a></td>' +
+        '<td style="color:var(--text2)">' + ago(b.timestamp) + '</td>' +
+        '<td><span class="badge badge-blue">' + b.txCount + '</span></td>' +
+        '<td class="addr" title="' + b.miner + '">' + shortAddr(b.miner) + '</td>' +
+        '</tr>';
+    });
+    if (append) tbody.innerHTML += rows.join('');
+    else        tbody.innerHTML  = rows.join('');
+
+    // Fill latest block sidebar
+    var latest = blocks[0];
+    if (latest) {
+      setText('latest-num',   '#' + numFmt(latest.number));
+      setText('latest-hash',  latest.hash);
+      setText('latest-miner', latest.miner);
+      setText('latest-txs',   latest.txCount + ' transactions');
+      setText('latest-gas',   numFmt(latest.gasUsed));
+      setText('latest-age',   ago(latest.timestamp));
+    }
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty" style="color:var(--red)">Node offline</td></tr>';
+  }
+}
+
+function loadMoreBlocks() { loadBlocks(true); }
+
+function updateWalletSummaryCards() {
+  setText('ov-wallets', numFmt(walletDirectory.length || 0));
+  if (walletDirectory && walletDirectory.length) {
+    setText('ov-top-wallet', shortAddr(walletDirectory[0].address));
+    setText('ov-top-balance', walletDirectory[0].balanceText || '—');
+  } else {
+    setText('ov-top-wallet', '—');
+    setText('ov-top-balance', 'Balance unavailable');
+  }
+}
+
+function sortWalletDirectory() {
+  walletDirectory.sort(function(a, b){
+    if (b.balanceValue !== a.balanceValue) return b.balanceValue - a.balanceValue;
+    if (b.txCount !== a.txCount) return b.txCount - a.txCount;
+    return String(a.address || '').localeCompare(String(b.address || ''));
+  });
+}
+
+async function refreshWalletDirectoryLive() {
+  if (!walletDirectory || walletDirectory.length === 0) return;
+
+  var refreshed = await Promise.all(walletDirectory.map(async function(w){
+    try {
+      var d = await fetch('/api/chain/address/' + w.address).then(function(r){ return r.json(); });
+      var balNum = parseFloat(d && d.balance ? d.balance : String(w.balanceValue || 0));
+      return {
+        address: w.address,
+        txCount: Number(d && d.txCount ? d.txCount : w.txCount || 0),
+        isContract: !!(d && d.isContract),
+        balanceValue: isNaN(balNum) ? Number(w.balanceValue || 0) : balNum,
+        balanceText: (d && d.balance ? d.balance : (w.balanceValue || 0)) + ' ETH II'
+      };
+    } catch(e) {
+      return w;
+    }
+  }));
+
+  walletDirectory = refreshed;
+  sortWalletDirectory();
+}
+
+async function loadRecentTransactions() {
+  var tbody = document.getElementById('tx-list');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>';
+  try {
+    var blocks = await fetch('/api/chain/blocks?count=25').then(function(r){ return r.json(); });
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">No recent blocks</td></tr>';
+      return;
+    }
+
+    var blockNums = blocks.slice(0, 12).map(function(b){ return b.number; });
+    var details = await Promise.all(blockNums.map(async function(n){
+      try { return await fetch('/api/chain/block/' + n).then(function(r){ return r.json(); }); }
+      catch(e) { return null; }
+    }));
+
+    var txRows = [];
+    details.forEach(function(block){
+      if (!block || !Array.isArray(block.transactions)) return;
+      block.transactions.forEach(function(tx){
+        if (!tx || typeof tx !== 'object' || !tx.hash) return;
+        txRows.push({
+          hash: tx.hash,
+          blockNumber: block.number,
+          value: tx.value,
+          timestamp: block.timestamp
+        });
+      });
+    });
+
+    if (!txRows.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">No recent transactions yet</td></tr>';
+      return;
+    }
+
+    txRows.sort(function(a, b){ return (b.blockNumber || 0) - (a.blockNumber || 0); });
+    txRows = txRows.slice(0, 12);
+    tbody.innerHTML = txRows.map(function(tx){
+      return '<tr>' +
+        '<td><a class="tx-link" href="#" onclick="goTx(\'' + esc(tx.hash) + '\');return false">' + esc(tx.hash.slice(0, 14) + '…') + '</a></td>' +
+        '<td><a class="block-link" href="#" onclick="goBlock(' + Number(tx.blockNumber || 0) + ');return false">#' + numFmt(Number(tx.blockNumber || 0)) + '</a></td>' +
+        '<td><span class="tx-value">' + fmtEthValue(tx.value) + '</span></td>' +
+        '<td style="color:var(--text2)">' + ago(Number(tx.timestamp || 0)) + '</td>' +
+        '</tr>';
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty" style="color:var(--red)">Could not load recent transactions</td></tr>';
+  }
+}
+
+function renderWalletDirectory() {
+  var tbody = document.getElementById('wallet-list');
+  var filter = (document.getElementById('wallet-filter').value || '').trim().toLowerCase();
+  var filtered = walletDirectory.filter(function(w){
+    return !filter || (w.address && w.address.toLowerCase().indexOf(filter) !== -1);
+  });
+
+  setText('wallet-count', filtered.length + ' / ' + walletDirectory.length);
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No wallet addresses match this filter</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(function(w){
+    var typeClass = w.isContract ? 'contract' : 'wallet';
+    var typeText = w.isContract ? 'Contract' : 'Wallet';
+    return '<tr>' +
+      '<td><a class="wallet-row-link" href="#" onclick="goAddress(\'' + esc(w.address) + '\');return false" title="' + esc(w.address) + '">' + esc(shortAddr(w.address)) + '</a></td>' +
+      '<td><span class="wallet-balance">' + esc(w.balanceText) + '</span></td>' +
+      '<td><span class="badge badge-blue">' + numFmt(w.txCount) + '</span></td>' +
+      '<td><span class="wallet-type ' + typeClass + '">' + typeText + '</span></td>' +
+      '</tr>';
+  }).join('');
+}
+
+function renderRichList() {
+  var tbody = document.getElementById('rich-list');
+  if (!walletDirectory || walletDirectory.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No wallet data yet</td></tr>';
+    return;
+  }
+
+  var top = walletDirectory.slice(0, 10);
+  tbody.innerHTML = top.map(function(w, idx){
+    return '<tr>' +
+      '<td><span class="richlist-rank">#' + (idx + 1) + '</span></td>' +
+      '<td><a class="wallet-row-link" href="#" onclick="goAddress(\'' + esc(w.address) + '\');return false" title="' + esc(w.address) + '">' + esc(shortAddr(w.address)) + '</a></td>' +
+      '<td><span class="wallet-balance">' + esc(w.balanceText) + '</span></td>' +
+      '<td><span class="badge badge-blue">' + numFmt(w.txCount) + '</span></td>' +
+      '</tr>';
+  }).join('');
+}
+
+async function loadWalletDirectory() {
+  var tbody = document.getElementById('wallet-list');
+  tbody.innerHTML = '<tr><td colspan="4" class="empty"><span class="spinner"></span></td></tr>';
+  try {
+    var snapshot = await fetch('chain-wallets.json', { cache: 'no-store' }).then(function(r){
+      if (!r.ok) throw new Error('wallet snapshot missing');
+      return r.json();
+    }).catch(function(){ return null; });
+
+    if (snapshot && Array.isArray(snapshot.wallets) && snapshot.wallets.length > 0) {
+      walletSnapshot = snapshot;
+      walletDirectory = snapshot.wallets.map(function(w){
+        var balanceValue = Number(w.balanceValue);
+        var txCount = Number(w.txCount || 0);
+        return {
+          address: w.address,
+          txCount: isNaN(txCount) ? 0 : txCount,
+          isContract: !!w.isContract,
+          balanceValue: isNaN(balanceValue) ? 0 : balanceValue,
+          balanceText: w.balanceText || ((isNaN(balanceValue) ? 0 : balanceValue) + ' ETH II')
+        };
+      });
+      sortWalletDirectory();
+
+      // Keep snapshot address coverage but refresh balances/tx counts live.
+      await refreshWalletDirectoryLive();
+
+      renderWalletDirectory();
+      renderRichList();
+      setText('wallet-updated', new Date().toLocaleString());
+      setText('hero-last-updated', new Date().toLocaleString());
+      updateWalletSummaryCards();
+      return;
+    }
+
+    var recent = await fetch('/api/chain/blocks?count=80').then(function(r){ return r.json(); });
+    if (!Array.isArray(recent) || recent.length === 0) {
+      walletDirectory = [];
+      renderRichList();
+      renderWalletDirectory();
+      setText('wallet-updated', new Date().toLocaleTimeString());
+      setText('hero-last-updated', new Date().toLocaleTimeString());
+      updateWalletSummaryCards();
+      return;
+    }
+
+    var addrSet = new Set();
+    recent.forEach(function(b){ if (b && b.miner && /^0x[0-9a-fA-F]{40}$/.test(b.miner)) addrSet.add(b.miner); });
+
+    var detailTargets = recent.slice(0, 10).map(function(b){ return b.number; });
+    var detailBlocks = await Promise.all(detailTargets.map(async function(n){
+      try { return await fetch('/api/chain/block/' + n).then(function(r){ return r.json(); }); }
+      catch(e) { return null; }
+    }));
+
+    detailBlocks.forEach(function(b){
+      if (!b || !Array.isArray(b.transactions)) return;
+      b.transactions.forEach(function(tx){
+        if (tx && typeof tx === 'object') {
+          if (tx.from && /^0x[0-9a-fA-F]{40}$/.test(tx.from)) addrSet.add(tx.from);
+          if (tx.to && /^0x[0-9a-fA-F]{40}$/.test(tx.to)) addrSet.add(tx.to);
+        }
+      });
+    });
+
+    var addresses = Array.from(addrSet).slice(0, 120);
+    var details = await Promise.all(addresses.map(async function(addr){
+      try {
+        var d = await fetch('/api/chain/address/' + addr).then(function(r){ return r.json(); });
+        var balNum = parseFloat(d && d.balance ? d.balance : '0');
+        return {
+          address: addr,
+          txCount: Number(d && d.txCount ? d.txCount : 0),
+          isContract: !!(d && d.isContract),
+          balanceValue: isNaN(balNum) ? 0 : balNum,
+          balanceText: (d && d.balance ? d.balance : '0') + ' ETH II'
+        };
+      } catch(e) {
+        return null;
+      }
+    }));
+
+    walletDirectory = details.filter(function(x){ return x && x.address; }).sort(function(a, b){
+      if (b.balanceValue !== a.balanceValue) return b.balanceValue - a.balanceValue;
+      return b.txCount - a.txCount;
+    });
+
+    renderWalletDirectory();
+    renderRichList();
+    walletSnapshot = null;
+    setText('wallet-updated', new Date().toLocaleTimeString());
+    setText('hero-last-updated', new Date().toLocaleTimeString());
+    updateWalletSummaryCards();
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty" style="color:var(--red)">Could not load wallet directory</td></tr>';
+    document.getElementById('rich-list').innerHTML = '<tr><td colspan="4" class="empty" style="color:var(--red)">Could not load rich list</td></tr>';
+    setText('wallet-count', '0 / 0');
+    setText('wallet-updated', 'offline');
+    setText('hero-last-updated', 'offline');
+    updateWalletSummaryCards();
+  }
+}
+
+async function loadChainInfo() {
+  try {
+    const info = await fetch('/api/chain/info').then(r=>r.json()).catch(function(){ return null; });
+    const stats = await fetch('/api/chain/stats').then(r=>r.json()).catch(function(){ return null; });
+    if (info && info.blockNumber) {
+      setText('ov-block', '#' + numFmt(info.blockNumber));
+      setText('ov-peers', info.peers || '0');
+    }
+    if (stats && stats.network) {
+      setText('ov-hashrate', formatHashrate(stats.network.hashrate, stats.network.difficulty));
+      setText('ov-difficulty', numFmt(hexDec(stats.network.difficulty || '0x0')));
+    }
+  } catch(e) {}
+}
+
+async function goBlock(num) {
+  showBlock();
+  setText('bd-num', '#' + numFmt(num));
+  try {
+    const b = await fetch('/api/chain/block/' + num).then(r=>r.json());
+    if (b.error) { alert('Block not found'); showList(); return; }
+    setText('bd-number',  '#' + numFmt(b.number));
+    setText('bd-hash',    b.hash);
+    setText('bd-parent',  b.parentHash);
+    setText('bd-miner',   b.miner);
+    setText('bd-time',    new Date(b.timestamp*1000).toLocaleString() + ' (' + ago(b.timestamp) + ')');
+    setText('bd-txcount', b.txCount + ' transactions');
+    setText('bd-gas',     numFmt(b.gasUsed));
+    setText('bd-gaslimit',numFmt(b.gasLimit));
+    setText('bd-diff',    numFmt(b.difficulty));
+    setText('bd-size',    numFmt(b.size) + ' bytes');
+
+    var txTbody = document.getElementById('bd-txs');
+    if (!b.transactions || b.transactions.length === 0) {
+      txTbody.innerHTML = '<tr><td colspan="4" class="empty">No transactions in this block</td></tr>';
+    } else {
+      txTbody.innerHTML = b.transactions.map(function(tx){
+        var hash = typeof tx === 'string' ? tx : tx.hash;
+        var from = typeof tx === 'string' ? '—' : shortAddr(tx.from);
+        var to   = typeof tx === 'string' ? '—' : shortAddr(tx.to);
+        var val  = typeof tx === 'string' ? '—' : (hexDec(tx.value)/1e18).toFixed(4) + ' ETH II';
+        return '<tr>' +
+          '<td><a class="tx-link" href="#" onclick="goTx(\'' + hash + '\');return false">' + hash.slice(0,12) + '…</a></td>' +
+          '<td class="addr">' + from + '</td>' +
+          '<td class="addr">' + to   + '</td>' +
+          '<td style="color:var(--green)">' + val + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+  } catch(e) { alert('Error loading block'); showList(); }
+}
+
+function goBlockHash(hash) {
+  // Navigate via search
+  document.getElementById('search-input').value = hash;
+  doSearch();
+}
+
+async function goTx(hash) {
+  showTx();
+  setText('td-hash', hash);
+  try {
+    const tx = await fetch('/api/chain/tx/' + hash).then(r=>r.json());
+    if (tx.error) { alert('Transaction not found'); showList(); return; }
+    var status = tx.receipt ? (tx.receipt.status === '0x1' ? '✓ Success' : '✗ Failed') : 'Pending';
+    var statusColor = tx.receipt ? (tx.receipt.status === '0x1' ? 'var(--green)' : 'var(--red)') : 'var(--gold)';
+    setText('td-hash',     tx.hash);
+    var statusEl = document.getElementById('td-status');
+    statusEl.textContent = status; statusEl.style.color = statusColor;
+    setText('td-block',    tx.blockNumber ? numFmt(hexDec(tx.blockNumber)) : '—');
+    setText('td-from',     tx.from || '—');
+    setText('td-to',       tx.to || '(contract creation)');
+    setText('td-value',    (hexDec(tx.value)/1e18).toFixed(4) + ' ETH II');
+    setText('td-gasused',  tx.receipt ? numFmt(hexDec(tx.receipt.gasUsed)) : '—');
+    setText('td-gasprice', (hexDec(tx.gasPrice)/1e9).toFixed(2) + ' Gwei');
+    setText('td-nonce',    hexDec(tx.nonce));
+  } catch(e) {
+    setText('search-status', 'Transaction lookup failed for ' + hash + '.');
+    alert('Error loading transaction');
+    showList();
+  }
+}
+
+var adAddr = '', adBlocksPg = 1, adBlocksPages = 1, adTxPg = 1, adTxPages = 1;
+
+async function loadAddrBlocks() {
+  setHtml('ad-found-blocks', '<tr><td colspan="5" class="empty"><span class="spinner"></span></td></tr>');
+  try {
+    var d = await fetch('/api/address-history?addr=' + adAddr + '&kind=blocks&page=' + adBlocksPg).then(function(r){ return r.json(); });
+    adBlocksPages = d.pages || 1;
+    setText('ad-found-summary', numFmt(d.total) + ' block(s) mined by this address');
+    setText('ad-blocks-page', 'Page ' + d.page + ' of ' + adBlocksPages);
+    document.getElementById('ad-blocks-prev').disabled = d.page <= 1;
+    document.getElementById('ad-blocks-next').disabled = d.page >= adBlocksPages;
+    if (!d.rows || d.rows.length === 0) {
+      setHtml('ad-found-blocks', '<tr><td colspan="5" class="empty">No blocks mined by this address</td></tr>');
+      return;
+    }
+    setHtml('ad-found-blocks', d.rows.map(function(b){
+      var t = new Date((b.ts || 0) * 1000);
+      var dateText = isNaN(t.getTime()) ? '—' : t.toLocaleString();
+      return '<tr>' +
+        '<td><a class="block-link" onclick="goBlock(' + b.number + ');return false" href="#">#' + numFmt(b.number) + '</a></td>' +
+        '<td>' + dateText + '</td>' +
+        '<td style="color:var(--text2)">' + ago(b.ts) + '</td>' +
+        '<td><span class="badge badge-blue">' + (b.txCount || 0) + '</span></td>' +
+        '<td class="addr" title="' + esc(b.hash || '') + '">' + esc((b.hash || '').slice(0, 14) + '…') + '</td>' +
+        '</tr>';
+    }).join(''));
+  } catch (e) {
+    setText('ad-found-summary', 'Block history lookup failed');
+    setHtml('ad-found-blocks', '<tr><td colspan="5" class="empty" style="color:var(--red)">Could not load mined blocks right now</td></tr>');
+  }
+}
+
+async function loadAddrTxs() {
+  setHtml('ad-tx-rows', '<tr><td colspan="7" class="empty"><span class="spinner"></span></td></tr>');
+  try {
+    var d = await fetch('/api/address-history?addr=' + adAddr + '&kind=txs&page=' + adTxPg).then(function(r){ return r.json(); });
+    adTxPages = d.pages || 1;
+    setText('ad-tx-summary', numFmt(d.total) + ' transaction(s) involving this address');
+    setText('ad-txcount', numFmt(d.total));
+    setText('ad-tx-page', 'Page ' + d.page + ' of ' + adTxPages);
+    document.getElementById('ad-tx-prev').disabled = d.page <= 1;
+    document.getElementById('ad-tx-next').disabled = d.page >= adTxPages;
+    if (!d.rows || d.rows.length === 0) {
+      setHtml('ad-tx-rows', '<tr><td colspan="7" class="empty">No transactions for this address yet</td></tr>');
+      return;
+    }
+    var me = adAddr.toLowerCase();
+    setHtml('ad-tx-rows', d.rows.map(function(tx){
+      var isOut = (tx.from || '').toLowerCase() === me;
+      var dir = isOut
+        ? '<span class="badge" style="background:rgba(255,140,0,0.15);color:var(--orange)">OUT</span>'
+        : '<span class="badge" style="background:rgba(0,200,120,0.15);color:var(--green)">IN</span>';
+      var val = (Number(tx.value || 0) / 1e18).toFixed(4);
+      return '<tr>' +
+        '<td><a class="tx-link" onclick="goTx(\'' + esc(tx.hash) + '\');return false" href="#">' + esc(tx.hash.slice(0, 14) + '…') + '</a></td>' +
+        '<td><a class="block-link" onclick="goBlock(' + tx.block + ');return false" href="#">#' + numFmt(tx.block) + '</a></td>' +
+        '<td style="color:var(--text2)">' + ago(tx.ts) + '</td>' +
+        '<td>' + dir + '</td>' +
+        '<td class="addr" title="' + esc(tx.from || '') + '">' + esc(shortAddr(tx.from || '')) + '</td>' +
+        '<td class="addr" title="' + esc(tx.to || '') + '">' + esc(shortAddr(tx.to || '(contract creation)')) + '</td>' +
+        '<td style="color:var(--green)">' + val + ' ETH II</td>' +
+        '</tr>';
+    }).join(''));
+  } catch (e) {
+    setText('ad-tx-summary', 'Transaction history lookup failed');
+    setHtml('ad-tx-rows', '<tr><td colspan="7" class="empty" style="color:var(--red)">Could not load transactions right now</td></tr>');
+  }
+}
+
+function adBlocksPage(d) {
+  var p = Math.min(Math.max(1, adBlocksPg + d), adBlocksPages);
+  if (p !== adBlocksPg) { adBlocksPg = p; loadAddrBlocks(); }
+}
+
+function adTxPage(d) {
+  var p = Math.min(Math.max(1, adTxPg + d), adTxPages);
+  if (p !== adTxPg) { adTxPg = p; loadAddrTxs(); }
+}
+
+async function goAddress(addr) {
+  if (!addr || addr === '—') return;
+  showAddr();
+  setText('addr-title', addr);
+  setText('ad-addr', addr);
+  try {
+    const d = await fetch('/api/chain/address/' + addr).then(r=>r.json());
+    setText('ad-balance',  d.balance + ' ETH II');
+    setText('ad-txcount',  d.txCount);
+    setText('ad-type',     d.isContract ? 'Contract' : 'Wallet');
+    document.getElementById('ad-type').style.color = d.isContract ? 'var(--gold)' : 'var(--blue)';
+    adAddr = normalizeSearchValue(addr).toLowerCase();
+    adBlocksPg = 1; adTxPg = 1;
+    await Promise.all([loadAddrBlocks(), loadAddrTxs()]);
+    setText('search-status', 'Loaded address ' + shortAddr(addr) + '.');
+  } catch(e) {
+    setText('search-status', 'Address lookup failed for ' + addr + '.');
+    showList();
+  }
+}
+
+function doSearch() {
+  var val = normalizeSearchValue(document.getElementById('search-input').value);
+  if (!val) return;
+  setText('search-status', 'Searching for ' + val + ' ...');
+  if (/^\d+$/.test(val)) { goBlock(parseInt(val)); return; }
+  if (/^0x[0-9a-fA-F]{64}$/.test(val)) { goTx(val); return; }
+  if (/^0x[0-9a-fA-F]{40}$/.test(val)) { goAddress(val); return; }
+  if (/^0x[0-9a-fA-F]{10,}$/.test(val)) {
+    // If user pastes a shortened/partial hash, treat it as tx hash candidate.
+    goTx(val);
+    return;
+  }
+  alert('Enter a block number, transaction hash (0x…64 chars), or wallet address (0x…40 chars)');
+  setText('search-status', 'Search format not recognized.');
+}
+
+function doSearchFromSecondary() {
+  var secondary = document.getElementById('search-input-secondary');
+  var main = document.getElementById('search-input');
+  if (!secondary || !main) return;
+  main.value = normalizeSearchValue(secondary.value || '');
+  doSearch();
+}
+
+var searchInput = document.getElementById('search-input');
+if (searchInput) {
+  searchInput.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') doSearch();
+  });
+}
+
+var searchInputSecondary = document.getElementById('search-input-secondary');
+if (searchInputSecondary) {
+  searchInputSecondary.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') doSearchFromSecondary();
+  });
+}
+
+var walletFilterInput = document.getElementById('wallet-filter');
+if (walletFilterInput) {
+  walletFilterInput.addEventListener('input', renderWalletDirectory);
+}
+
+// Check URL param
+var params = new URLSearchParams(window.location.search);
+if (params.get('block')) goBlock(parseInt(params.get('block')));
+else if (params.get('tx')) goTx(params.get('tx'));
+else if (params.get('addr')) goAddress(params.get('addr'));
+
+loadBlocks(false);
+loadChainInfo();
+loadRecentTransactions();
+loadWalletDirectory();
+setInterval(function(){ loadBlocks(false); loadChainInfo(); }, 15000);
+setInterval(function(){ loadRecentTransactions(); }, 20000);
+setInterval(function(){ loadWalletDirectory(); }, 60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""ETHII download key manager CLI.
+
+Usage:
+  ethii-keys list
+  ethii-keys add <label>
+  ethii-keys revoke <key>
+  ethii-keys unrevoke <key>
+  ethii-keys log [key] [lines]
+"""
+import json
+import os
+import secrets
+import sys
+from datetime import datetime, timezone
+
+BASE = "/opt/ethii-downloads"
+KEYS_FILE = os.path.join(BASE, "keys.json")
+LOG_FILE = os.path.join(BASE, "download.log")
+
+
+def load():
+    try:
+        with open(KEYS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"keys": {}}
+
+
+def save(data):
+    tmp = KEYS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, KEYS_FILE)
+
+
+def counts():
+    n = {}
+    try:
+        with open(LOG_FILE) as f:
+            for line in f:
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) >= 3 and parts[1] == "download":
+                    n[parts[2]] = n.get(parts[2], 0) + 1
+    except OSError:
+        pass
+    return n
+
+
+def cmd_list():
+    data = load()
+    dl = counts()
+    if not data["keys"]:
+        print("no keys")
+        return
+    print("%-42s %-20s %-20s %-8s %s" % ("KEY", "LABEL", "CREATED", "REVOKED", "DOWNLOADS"))
+    for k, v in data["keys"].items():
+        print("%-42s %-20s %-20s %-8s %d" % (
+            k, v.get("label", "")[:20], v.get("created", "")[:19],
+            "YES" if v.get("revoked") else "no", dl.get(k, 0)))
+
+
+def cmd_add(label):
+    data = load()
+    key = "ETHII-" + secrets.token_hex(4).upper() + "-" + secrets.token_hex(4).upper() + "-" + secrets.token_hex(4).upper()
+    data["keys"][key] = {
+        "label": label,
+        "created": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "revoked": False,
+    }
+    save(data)
+    print(key)
+
+
+def set_revoked(key, value):
+    data = load()
+    if key not in data["keys"]:
+        print("key not found: %s" % key)
+        sys.exit(1)
+    data["keys"][key]["revoked"] = value
+    save(data)
+    print("%s -> revoked=%s" % (key, value))
+
+
+def cmd_log(key=None, lines=50):
+    try:
+        with open(LOG_FILE) as f:
+            rows = f.readlines()
+    except OSError:
+        print("no log yet")
+        return
+    if key:
+        rows = [r for r in rows if (" %s " % key) in r]
+    for r in rows[-int(lines):]:
+        print(r.rstrip())
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        sys.exit(1)
+    cmd = args[0]
+    if cmd == "list":
+        cmd_list()
+    elif cmd == "add" and len(args) >= 2:
+        cmd_add(" ".join(args[1:]))
+    elif cmd == "revoke" and len(args) == 2:
+        set_revoked(args[1], True)
+    elif cmd == "unrevoke" and len(args) == 2:
+        set_revoked(args[1], False)
+    elif cmd == "log":
+        cmd_log(args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else 50)
+    else:
+        print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

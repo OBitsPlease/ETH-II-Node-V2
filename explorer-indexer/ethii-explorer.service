@@ -1,0 +1,12 @@
+[Unit]
+Description=ETHII explorer address-history indexer
+After=network.target ethii-node.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/ethii-explorer/indexer.py
+WorkingDirectory=/opt/ethii-explorer
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

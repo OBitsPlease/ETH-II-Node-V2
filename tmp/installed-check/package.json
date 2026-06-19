@@ -1,0 +1,11 @@
+{
+  "name": "ethii-wallet",
+  "version": "2.1.15",
+  "description": "ETHII Wallet - ETH II Proof of Work",
+  "main": "main.js",
+  "author": "BitsPleaseYT",
+  "license": "ISC",
+  "dependencies": {
+    "ethers": "^6.16.0"
+  }
+}

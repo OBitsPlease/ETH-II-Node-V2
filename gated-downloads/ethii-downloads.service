@@ -1,0 +1,13 @@
+[Unit]
+Description=ETHII gated download service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/ethii-downloads/serve.py
+Restart=always
+RestartSec=3
+User=root
+WorkingDirectory=/opt/ethii-downloads
+
+[Install]
+WantedBy=multi-user.target

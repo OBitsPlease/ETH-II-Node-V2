@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Blockchain Visualizer — ETH II</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+  <style>
+    :root {
+      --bg: #04040e; --orange: #ff6b1a; --blue: #00d4ff; --gold: #ffd700;
+      --green: #00e676; --text: #e8eaf0; --text2: #8892a4; --text3: #4a5568;
+      --border: #1a1a32; --bg3: #0d0d20;
+      --font-display: 'Orbitron', monospace;
+      --font-heading: 'Exo 2', sans-serif;
+      --font-mono:    'JetBrains Mono', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); overflow: hidden; font-family: var(--font-heading); color: var(--text); }
+
+    /* Nav */
+    .nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 56px;
+      background: rgba(4,4,14,0.9); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { font-family: var(--font-display); font-weight: 900; font-size: 1.2rem; color: var(--orange); text-decoration: none; letter-spacing: 0.12em; }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; }
+    .nav-links a { color: var(--text2); text-decoration: none; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--orange); }
+
+    /* Canvas fills viewport minus nav */
+    #viz-canvas { position: fixed; top: 56px; left: 0; width: 100vw; height: calc(100vh - 56px); display: block; }
+
+    /* Block info overlay */
+    #block-info {
+      position: fixed; top: 72px; right: 20px; width: 300px;
+      background: rgba(13,13,32,0.95); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1.25rem; display: none;
+      backdrop-filter: blur(8px); z-index: 50;
+    }
+    #block-info h3 { font-family: var(--font-display); font-size: 1rem; color: var(--orange); margin-bottom: 1rem; }
+    .bi-row { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+    .bi-row:last-child { border-bottom: none; }
+    .bi-key { font-size: 0.72rem; color: var(--text3); letter-spacing: 0.06em; }
+    .bi-val { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text); max-width: 160px; text-align: right; word-break: break-all; }
+    #close-info { position: absolute; top: 0.6rem; right: 0.75rem; cursor: pointer; color: var(--text3); font-size: 1rem; }
+    #close-info:hover { color: var(--orange); }
+
+    /* Live stats overlay */
+    #live-stats {
+      position: fixed; top: 72px; left: 20px;
+      background: rgba(13,13,32,0.9); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem 1.25rem; min-width: 200px;
+      backdrop-filter: blur(8px); z-index: 50;
+    }
+    #live-stats h4 { font-family: var(--font-display); font-size: 0.65rem; color: var(--orange); letter-spacing: 0.15em; margin-bottom: 0.75rem; }
+    .ls-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.3rem 0; }
+    .ls-key { font-size: 0.7rem; color: var(--text3); }
+    .ls-val { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text); }
+
+    /* Controls hint */
+    #controls {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 1.5rem; padding: 0.6rem 1.5rem;
+      background: rgba(13,13,32,0.8); border: 1px solid var(--border);
+      border-radius: 20px; font-size: 0.72rem; color: var(--text2);
+      backdrop-filter: blur(8px); z-index: 50;
+    }
+    #controls span b { color: var(--orange); }
+
+    /* Pulse on new block */
+    @keyframes newblock { 0%{box-shadow:0 0 0 0 rgba(255,107,26,0.8)} 100%{box-shadow:0 0 0 30px rgba(255,107,26,0)} }
+    .pulse-flash { animation: newblock 0.8s ease-out; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html" class="nav-logo">ETH II</a>
+  <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="wallet.html">Wallet</a></li>
+    <li><a href="mine.html">Mine</a></li>
+    <li><a href="explorer.html">Explorer</a></li>
+    <li><a href="visualizer.html" class="active">Visualizer</a></li>
+  </ul>
+</nav>
+
+<canvas id="viz-canvas"></canvas>
+
+<!-- Live stats overlay -->
+<div id="live-stats">
+  <h4>ETH II LIVE</h4>
+  <div class="ls-row"><span class="ls-key">Block</span><span class="ls-val" id="ls-block">—</span></div>
+  <div class="ls-row"><span class="ls-key">Peers</span><span class="ls-val" id="ls-peers">—</span></div>
+  <div class="ls-row"><span class="ls-key">Difficulty</span><span class="ls-val" id="ls-diff">—</span></div>
+  <div class="ls-row"><span class="ls-key">Reward</span><span class="ls-val" style="color:var(--gold)">5 ETH II</span></div>
+  <div class="ls-row"><span class="ls-key">Chain ID</span><span class="ls-val" style="color:var(--blue)">2048</span></div>
+</div>
+
+<!-- Block info overlay -->
+<div id="block-info">
+  <span id="close-info" onclick="document.getElementById('block-info').style.display='none'">✕</span>
+  <h3 id="bi-title">Block</h3>
+  <div class="bi-row"><span class="bi-key">NUMBER</span><span class="bi-val" id="bi-num">—</span></div>
+  <div class="bi-row"><span class="bi-key">HASH</span><span class="bi-val" id="bi-hash">—</span></div>
+  <div class="bi-row"><span class="bi-key">MINER</span><span class="bi-val" id="bi-miner">—</span></div>
+  <div class="bi-row"><span class="bi-key">TRANSACTIONS</span><span class="bi-val" id="bi-txs">—</span></div>
+  <div class="bi-row"><span class="bi-key">GAS USED</span><span class="bi-val" id="bi-gas">—</span></div>
+  <div class="bi-row"><span class="bi-key">AGE</span><span class="bi-val" id="bi-age">—</span></div>
+  <div style="margin-top:0.75rem;text-align:center">
+    <a id="bi-explore" href="#" style="color:var(--orange);font-size:0.75rem;font-family:var(--font-display);letter-spacing:0.1em">VIEW IN EXPLORER →</a>
+  </div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <span><b>Drag</b> to rotate</span>
+  <span><b>Scroll</b> to zoom</span>
+  <span><b>Click</b> a block for details</span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── 3D Blockchain Visualizer ───────────────────────────────────────────────────
+var scene, camera, renderer, blocks3d = [], latestBlock = null, raycaster, mouse;
+var isDragging = false, prevMouse = {x:0,y:0}, rotX = 0.15, rotY = 0, zoom = 40;
+var GROUP, starField, ambientParticles = [];
+var BLOCK_COLOR_FULL = 0xff6b1a, BLOCK_COLOR_EMPTY = 0x00d4ff, BLOCK_COLOR_LATEST = 0xffd700;
+
+function init3D() {
+  var canvas = document.getElementById('viz-canvas');
+  scene    = new THREE.Scene();
+  camera   = new THREE.PerspectiveCamera(60, canvas.offsetWidth / canvas.offsetHeight, 0.1, 2000);
+  renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x04040e, 1);
+
+  raycaster = new THREE.Raycaster();
+  mouse     = new THREE.Vector2();
+
+  // Lighting
+  scene.add(new THREE.AmbientLight(0x223366, 0.8));
+  var light1 = new THREE.PointLight(0xff6b1a, 1.5, 200); light1.position.set(0,30,30); scene.add(light1);
+  var light2 = new THREE.PointLight(0x00d4ff, 1.0, 200); light2.position.set(0,-30,-30); scene.add(light2);
+
+  GROUP = new THREE.Group();
+  scene.add(GROUP);
+
+  // Stars background
+  var starsGeo = new THREE.BufferGeometry();
+  var starCount = 2000;
+  var positions = new Float32Array(starCount * 3);
+  for (var i = 0; i < starCount * 3; i++) positions[i] = (Math.random() - 0.5) * 800;
+  starsGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  starField = new THREE.Points(starsGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true, opacity: 0.4 }));
+  scene.add(starField);
+
+  camera.position.set(0, 0, zoom);
+
+  // Mouse events
+  canvas.addEventListener('mousedown', function(e){ isDragging = true; prevMouse = {x:e.clientX,y:e.clientY}; });
+  window.addEventListener('mouseup',   function()  { isDragging = false; });
+  window.addEventListener('mousemove', function(e) {
+    if (isDragging) {
+      rotY += (e.clientX - prevMouse.x) * 0.008;
+      rotX += (e.clientY - prevMouse.y) * 0.006;
+      rotX = Math.max(-1.2, Math.min(1.2, rotX));
+      prevMouse = {x:e.clientX, y:e.clientY};
+    }
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -((e.clientY - 56) / (window.innerHeight - 56)) * 2 + 1;
+  });
+  canvas.addEventListener('wheel', function(e) {
+    zoom += e.deltaY * 0.05;
+    zoom = Math.max(10, Math.min(120, zoom));
+  });
+  canvas.addEventListener('click', function(e) {
+    if (Math.abs(e.clientX - prevMouse.x) < 5) onBlockClick();
+  });
+  window.addEventListener('resize', function() {
+    camera.aspect = canvas.offsetWidth / canvas.offsetHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+  });
+
+  // Touch support
+  var touchStart = {x:0,y:0};
+  canvas.addEventListener('touchstart', function(e){ touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY}; isDragging = true; });
+  canvas.addEventListener('touchend',   function()  { isDragging = false; });
+  canvas.addEventListener('touchmove',  function(e) {
+    if (isDragging) {
+      rotY += (e.touches[0].clientX - touchStart.x) * 0.01;
+      rotX += (e.touches[0].clientY - touchStart.y) * 0.008;
+      rotX = Math.max(-1.2, Math.min(1.2, rotX));
+      touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY};
+    }
+    e.preventDefault();
+  }, {passive:false});
+
+  animate();
+}
+
+function addBlock3D(b) {
+  var idx   = blocks3d.length;
+  var angle = idx * 0.45;
+  var radius = 8 + idx * 0.08;
+  var x = Math.cos(angle) * radius;
+  var z = Math.sin(angle) * radius;
+  var y = idx * 0.6 - blocks3d.length * 0.3;
+
+  var size = 1.2 + Math.min(b.txCount * 0.1, 0.8);
+  var geo  = new THREE.BoxGeometry(size, size, size);
+
+  var color = b.txCount > 5 ? BLOCK_COLOR_FULL : (idx === 0 ? BLOCK_COLOR_LATEST : BLOCK_COLOR_EMPTY);
+  var mat   = new THREE.MeshPhongMaterial({
+    color: color, emissive: color, emissiveIntensity: 0.3,
+    transparent: true, opacity: 0.92, wireframe: false
+  });
+  var mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.userData = { block: b, index: idx };
+
+  // Edges
+  var edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.5 })
+  );
+  mesh.add(edges);
+
+  GROUP.add(mesh);
+  blocks3d.push(mesh);
+
+  // Connect to previous block with a line
+  if (blocks3d.length > 1) {
+    var prev = blocks3d[blocks3d.length - 2];
+    var pts  = [prev.position.clone(), mesh.position.clone()];
+    var lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+    var line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xff6b1a, transparent: true, opacity: 0.25 }));
+    GROUP.add(line);
+  }
+
+  // Keep only last 40 blocks
+  if (blocks3d.length > 40) {
+    GROUP.remove(blocks3d[0]);
+    blocks3d.shift();
+  }
+}
+
+var hoveredBlock = null;
+function onBlockClick() {
+  raycaster.setFromCamera(mouse, camera);
+  var intersects = raycaster.intersectObjects(blocks3d, false);
+  if (intersects.length > 0) {
+    var b = intersects[0].object.userData.block;
+    if (b) showBlockInfo(b);
+  }
+}
+
+function showBlockInfo(b) {
+  document.getElementById('block-info').style.display = 'block';
+  document.getElementById('bi-title').textContent = 'Block #' + b.number.toLocaleString();
+  document.getElementById('bi-num').textContent   = b.number.toLocaleString();
+  document.getElementById('bi-hash').textContent  = b.hash ? b.hash.slice(0,16)+'…' : '—';
+  document.getElementById('bi-miner').textContent = b.miner ? b.miner.slice(0,10)+'…' : '—';
+  document.getElementById('bi-txs').textContent   = b.txCount;
+  document.getElementById('bi-gas').textContent   = b.gasUsed ? b.gasUsed.toLocaleString() : '—';
+  var age = b.timestamp ? Math.floor(Date.now()/1000 - b.timestamp) : 0;
+  document.getElementById('bi-age').textContent   = age < 60 ? age+'s ago' : Math.floor(age/60)+'m ago';
+  document.getElementById('bi-explore').href = 'explorer.html?block=' + b.number;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Smooth camera orbit
+  var targetX = Math.sin(rotY) * Math.cos(rotX) * zoom;
+  var targetY = Math.sin(rotX) * zoom;
+  var targetZ = Math.cos(rotY) * Math.cos(rotX) * zoom;
+  camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.08);
+  camera.lookAt(0, 0, 0);
+
+  // Rotate group slightly
+  GROUP.rotation.y += 0.001;
+
+  // Hover highlight
+  raycaster.setFromCamera(mouse, camera);
+  var hits = raycaster.intersectObjects(blocks3d, false);
+  blocks3d.forEach(function(m, i) {
+    var isLatest = i === blocks3d.length - 1;
+    var baseColor = m.userData.block && m.userData.block.txCount > 5 ? BLOCK_COLOR_FULL : (isLatest ? BLOCK_COLOR_LATEST : BLOCK_COLOR_EMPTY);
+    m.material.emissiveIntensity = isLatest ? 0.5 : 0.2;
+  });
+  if (hits.length > 0) {
+    hits[0].object.material.emissiveIntensity = 0.9;
+    document.body.style.cursor = 'pointer';
+  } else {
+    document.body.style.cursor = 'default';
+  }
+
+  // Pulse latest block
+  if (blocks3d.length > 0) {
+    var latest = blocks3d[blocks3d.length - 1];
+    var s = 1 + 0.04 * Math.sin(Date.now() * 0.003);
+    latest.scale.set(s, s, s);
+  }
+
+  // Rotate star field slowly
+  starField.rotation.y += 0.0001;
+
+  renderer.render(scene, camera);
+}
+
+// ── Live data ──────────────────────────────────────────────────────────────────
+function fmtHR(mhs) {
+  if (!mhs || mhs <= 0) return '—';
+  if (mhs >= 1e6) return (mhs/1e6).toFixed(2) + ' TH/s';
+  if (mhs >= 1000) return (mhs/1000).toFixed(2) + ' GH/s';
+  if (mhs >= 1) return mhs.toFixed(2) + ' MH/s';
+  if (mhs >= 0.001) return (mhs*1000).toFixed(2) + ' KH/s';
+  return (mhs*1e6).toFixed(0) + ' H/s';
+}
+
+var loadedBlockNums = new Set();
+
+async function loadBlocks() {
+  try {
+    const blocks = await fetch('/api/chain/blocks?count=30').then(r=>r.json());
+    if (!Array.isArray(blocks)) return;
+
+    var newBlocks = blocks.filter(function(b){ return !loadedBlockNums.has(b.number); });
+    newBlocks.reverse().forEach(function(b) {
+      addBlock3D(b);
+      loadedBlockNums.add(b.number);
+    });
+
+    if (blocks.length > 0) {
+      var latest = blocks[0];
+      document.getElementById('ls-block').textContent = '#' + latest.number.toLocaleString();
+      if (!latestBlock || latestBlock.number < latest.number) {
+        latestBlock = latest;
+      }
+    }
+  } catch(e) {}
+}
+
+async function loadChainStats() {
+  try {
+    const d = await fetch('/api/chain/info').then(r=>r.json());
+    if (d && !d.error) {
+      document.getElementById('ls-peers').textContent = Number.isFinite(d.peers) ? d.peers : '—';
+      document.getElementById('ls-diff').textContent = d.latestBlock && d.latestBlock.difficulty ? d.latestBlock.difficulty : '—';
+    }
+  } catch(e) {}
+}
+
+// Init
+init3D();
+loadBlocks();
+loadChainStats();
+setInterval(loadBlocks,     10000);
+setInterval(loadChainStats, 15000);
+</script>
+</body>
+</html>
