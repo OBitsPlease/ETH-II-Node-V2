@@ -7,11 +7,28 @@ This repository is the clean baseline for ETH-II node and public pool operators.
 > and DM it to **`@bitspleaseyt.skr`** on Discord (or open a GitHub issue
 > titled `Access request`). You'll get a download key for the binaries.
 
-## Pool operators: start here
+## Quick start: Choose your role
+
+### I want to run a node only (peer support)
+
+Use [ETH-II-NODE-ONLY](../ETH-II-NODE-ONLY) instead. That package is for:
+- Network peers who don't want to mine or run a pool
+- Backup nodes
+- Relay nodes
+
+Start with: `ETH-II-NODE-ONLY/README.md`
+
+### I want to run a mining pool
 
 **[POOL-OPERATORS.md](POOL-OPERATORS.md)** — one-command install of a
 self-running ETHII pool (node + stratum + auto-payouts + self-healing).
 You need a download key from the ETHII team.
+
+The setup script (`scripts/setup-ethii-pool.sh`) automatically:
+- Configures stratum to sync with the canonical EU RPC (91.99.231.217:8545)
+- Prevents local mining on your server
+- Generates a secure pool wallet
+- Sets up automatic payouts
 
 ## Controlled access model
 

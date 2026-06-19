@@ -4,6 +4,20 @@ Run your own ETHII mining pool on a Linux server with one command. The
 installer sets up a full ETHII node, the stratum pool software, a pool
 wallet, automatic payouts, and self-healing services.
 
+**Important:** This guide is for running a **mining pool only**. If you just want to support the network with a peer node and no pool, see [ETH-II-NODE-ONLY](../ETH-II-NODE-ONLY) instead.
+
+---
+
+## Architecture: Single truth node, all pools connect to it
+
+The ETHII network operates with one canonical RPC node as the source of truth:
+
+- **Canonical node:** EU VPS (91.99.231.217:8545)
+- **All pools:** Connect their stratum to the canonical node via the setup script
+- **Result:** All pools stay perfectly in sync on the same chain — no forks, no reorgs
+
+The setup script hardcodes your stratum to use `91.99.231.217:8545`. **Do not change this** — changing the RPC will break consensus and cause the network to split.
+
 ---
 
 ## 1. What you need
@@ -80,6 +94,75 @@ they can take the pool's balance.
 scp root@YOUR_SERVER:/opt/ethii/pool-keystore.json root@YOUR_SERVER:/opt/ethii/pool-password.txt ./ethii-pool-backup/
 ```
 
+## 4. Back up your pool wallet (do this immediately)
+
+The installer creates:
+
+- `/opt/ethii/pool-keystore.json`
+- `/opt/ethii/pool-password.txt`
+
+Copy both files somewhere safe **off the server**. They control all pool
+funds. If you lose them you cannot pay your miners; if someone steals them
+they can take the pool's balance.
+
+```bash
+# from your own machine:
+scp root@YOUR_SERVER:/opt/ethii/pool-keystore.json root@YOUR_SERVER:/opt/ethii/pool-password.txt ./ethii-pool-backup/
+```
+
+### What is pool-password.txt?
+
+This file contains the **keypass**: the password that unlocks your pool wallet's keystore. It's used automatically by the stratum when signing payout transactions.
+
+- **Do not share it** with anyone
+- **Do not commit it to GitHub** — it's in `.gitignore` by design
+- **Do back it up somewhere safe and offline**
+- If you lose it, you cannot send payouts; you'll need to set up a new pool wallet
+
+If you're updating an existing pool and want to reuse your wallet, bring both the keystore and password file with you:
+
+```bash
+# Stop pool
+systemctl stop ethii-stratum ethii-node
+
+# Restore your wallet files
+scp ./ethii-pool-backup/pool-keystore.json root@NEW_SERVER:/opt/ethii/
+scp ./ethii-pool-backup/pool-password.txt root@NEW_SERVER:/opt/ethii/
+chmod 600 /opt/ethii/pool-*.{json,txt}
+
+# Restart
+systemctl start ethii-node ethii-stratum
+```
+
+## 5. Open firewall ports
+
+| Port | Protocol | Purpose | Required? |
+|---|---|---|---|
+| 30303 | TCP + UDP | Node peering (P2P) | Yes |
+| 3335 | TCP | Miners — standard stratum | Yes |
+| 3334 | TCP | Miners — low difficulty (CPU / small GPUs) | Optional |
+| 3336 | TCP | Miners — Innosilicon A10 ASICs | Optional |
+| 8082 | TCP | Pool web dashboard | Optional |
+
+**Automated firewall setup (nftables):**
+
+```bash
+sudo bash /opt/ethii/setup-firewall-nftables.sh
+```
+
+This script opens all required ports safely and persists through reboots.
+
+**Manual setup with ufw:**
+
+```bash
+ufw allow 30303
+ufw allow 3335/tcp
+ufw allow 8082/tcp
+```
+
+**Never expose port 8545** (node RPC). The installer binds it to
+127.0.0.1 only — leave it that way.
+
 ## 5. Open firewall ports
 
 | Port | Protocol | Purpose | Required? |
@@ -125,7 +208,7 @@ Example (lolMiner):
 lolMiner --algo ETHASH --pool YOUR_SERVER_IP:3335 --user 0xMINER_WALLET_ADDRESS
 ```
 
-### PPLNS vs solo
+## 6. PPLNS vs solo
 
 - **Default (PPLNS):** all miners share block rewards proportionally to
   recent shares. Steady income for everyone.
@@ -136,7 +219,7 @@ lolMiner --algo ETHASH --pool YOUR_SERVER_IP:3335 --user 0xMINER_WALLET_ADDRESS
 user: solo:0xMINER_WALLET_ADDRESS
 ```
 
-## 6. Payouts
+## 7. Payouts
 
 Payouts are fully automatic — you do not need to do anything:
 
@@ -158,7 +241,7 @@ each block reward goes to the development fund address automatically. This
 is enforced at the protocol level on every pool and solo miner equally;
 it is not something your pool adds or can change.
 
-## 7. Dashboard
+## 8. Dashboard
 
 Your pool has a live web dashboard at:
 
@@ -169,7 +252,7 @@ http://YOUR_SERVER_IP:8082
 It shows connected miners, hashrate, blocks found, and pending balances,
 and lets you adjust the minimum payout.
 
-## 8. Day-to-day operation
+## 9. Day-to-day operation
 
 The pool runs itself. Services restart on crash (systemd) and on hang
 (health guard timer). Useful commands:
@@ -191,7 +274,29 @@ curl -s -X POST -H 'Content-Type: application/json' \
   http://127.0.0.1:8545
 ```
 
-## 9. Updating
+## 9. Day-to-day operation
+
+The pool runs itself. Services restart on crash (systemd) and on hang
+(health guard timer). Useful commands:
+
+```bash
+# status
+systemctl status ethii-node ethii-stratum
+
+# live logs
+journalctl -u ethii-stratum -f
+journalctl -u ethii-node -f
+
+# health guard activity
+journalctl -t ethii-guard
+
+# is the node synced? (compare to the explorer at https://www.ethii.net)
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  http://127.0.0.1:8545
+```
+
+## 10. Updating
 
 When a new version is announced, re-download the binaries with your key
 and restart:
@@ -206,7 +311,7 @@ systemctl start ethii-node ethii-stratum
 
 Your chain data, pool wallet, and payout state are untouched by updates.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
