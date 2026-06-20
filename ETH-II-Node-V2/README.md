@@ -35,13 +35,14 @@ Want to help the network grow without the complexity of running a pool? You can 
 
 This node does **not** mine and does **not** run a pool. It simply syncs with the network and acts as a peer to strengthen the chain.
 
-**How to run it:**
-1. Download or clone this repository to your PC.
-2. Double-click the `one-click-peer-node.bat` file in the folder.
-3. It will ask for your **ETHII Passkey**.
-4. The script will automatically download the Windows node binary, sync with the truth nodes, and start running in the background!
+**How to run it (No GitHub experience required):**
+1. **[ CLICK HERE TO DOWNLOAD THE SETUP ZIP ](https://github.com/OBitsPlease/ETH-II-Node-V2/archive/refs/heads/main.zip)**
+2. Open your Downloads folder, **Right-Click** the downloaded .zip file, and select **Extract All...**
+3. Open the extracted folder and double-click the **one-click-peer-node.bat** file.
+4. It will ask for your **ETHII Passkey**. *(You get this from the ETHII team).*
+5. The script will automatically download the Windows node binary, sync with the truth nodes, and start running in the background!
 
-That's it! Your node is now supporting the network. Logs can be found in `%USERPROFILE%\ETHII\peer-node\data\peer-node.log`.
+That's it! Your node is now supporting the network. Logs can be found in %USERPROFILE%\ETHII\peer-node\data\peer-node.log.
 
 ---
 
