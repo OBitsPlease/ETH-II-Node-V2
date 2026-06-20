@@ -9,7 +9,7 @@
 # on the EU server, and starts everything.
 set -euo pipefail
 
-DL_BASE="http://91.99.231.217:8091/dl"
+DL_BASE="https://www.ethii.net/dl"
 INSTALL_DIR="/opt/ethii"
 
 err()  { echo "ERROR: $*" >&2; exit 1; }
