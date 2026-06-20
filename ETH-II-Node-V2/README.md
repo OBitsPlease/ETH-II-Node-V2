@@ -2,10 +2,11 @@
 
 This repository is the clean baseline for ETH-II node and public pool operators.
 
-> **Want to run a node or pool?** Fill out
-> [`ops/templates/access-request-template.md`](ops/templates/access-request-template.md)
-> and DM it to **`@bitspleaseyt.skr`** on Discord (or open a GitHub issue
-> titled `Access request`). You'll get a download key for the binaries.
+> **Want to run a node or pool?** You need a secure passkey to download the software.
+> 
+> **How to get a passkey:**
+> 1. Join our Discord: **[https://discord.gg/fecncP66](https://discord.gg/fecncP66)**
+> 2. Tag or DM **`@bitspleaseyt.skr`** and ask for a Node/Pool passkey.
 
 ---
 
@@ -39,7 +40,7 @@ This node does **not** mine and does **not** run a pool. It simply syncs with th
 1. **[ CLICK HERE TO DOWNLOAD THE SETUP ZIP ](https://github.com/OBitsPlease/ETH-II-Node-V2/archive/refs/heads/main.zip)**
 2. Open your Downloads folder, **Right-Click** the downloaded .zip file, and select **Extract All...**
 3. Open the extracted folder and double-click the **one-click-peer-node.bat** file.
-4. It will ask for your **ETHII Passkey**. *(You get this from the ETHII team).*
+4. It will ask for your **ETHII Passkey**. *(Join our **[Discord](https://discord.gg/fecncP66)** and ask `@bitspleaseyt.skr` for a passkey).*
 5. The script will automatically download the Windows node binary, sync with the truth nodes, and start running in the background!
 
 That's it! Your node is now supporting the network. Logs can be found in %USERPROFILE%\ETHII\peer-node\data\peer-node.log.
