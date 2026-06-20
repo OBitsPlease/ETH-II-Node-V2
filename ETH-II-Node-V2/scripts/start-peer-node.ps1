@@ -1,5 +1,6 @@
 param(
-  [string]$DataDir = "$env:USERPROFILE\ETHII\peer-node\data"
+  [string]$DataDir = "$env:USERPROFILE\ETHII\peer-node\data",
+  [string]$Passkey = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,8 +14,19 @@ $LogPath = Join-Path $DataDir 'peer-node.log'
 $RpcUrl = 'http://127.0.0.1:8545'
 
 if (-not (Test-Path $EthiiExe)) {
-  throw "Missing binary: $EthiiExe. Place ethii.exe in repo root before running one-click launcher."
+  if ([string]::IsNullOrWhiteSpace($Passkey)) {
+    throw "Missing binary: $EthiiExe and no passkey provided. Please provide a passkey to download it automatically."
+  }
+  Write-Host "Downloading ETH-II Node binary from secure server..." -ForegroundColor Cyan
+  $DlUrl = "https://www.ethii.net/dl/ethii-windows-amd64.exe?key=$Passkey"
+  try {
+    Invoke-WebRequest -Uri $DlUrl -OutFile $EthiiExe -UseBasicParsing
+  } catch {
+    throw "Failed to download node binary. Please check your passkey and internet connection. Error: $_"
+  }
+  Write-Host "Download complete!" -ForegroundColor Green
 }
+
 if (-not (Test-Path $Genesis)) { throw "Missing genesis.json" }
 if (-not (Test-Path $StaticNodes)) { throw "Missing p2p/static-nodes.json" }
 if (-not (Test-Path $TrustedNodes)) { throw "Missing p2p/trusted-nodes.json" }
@@ -88,3 +100,6 @@ Write-Host 'Verifying canonical chain identity...' -ForegroundColor Cyan
 & (Join-Path $PSScriptRoot 'verify-chain.ps1') -RpcUrl $RpcUrl
 Write-Host 'Peer-support node is running.' -ForegroundColor Green
 Write-Host 'This mode supports network peers only. It does not run a public pool.' -ForegroundColor Yellow
+Write-Host ''
+Write-Host 'Press any key to exit this window (the node will continue running in the background).' -ForegroundColor White
+$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')

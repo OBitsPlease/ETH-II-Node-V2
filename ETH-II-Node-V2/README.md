@@ -7,70 +7,45 @@ This repository is the clean baseline for ETH-II node and public pool operators.
 > and DM it to **`@bitspleaseyt.skr`** on Discord (or open a GitHub issue
 > titled `Access request`). You'll get a download key for the binaries.
 
-## Quick start: Choose your role
+---
 
-### I want to run a node only (peer support)
+##  1. I want to run a mining pool (Linux VPS)
 
-Use [ETH-II-NODE-ONLY](../ETH-II-NODE-ONLY) instead. That package is for:
-- Network peers who don't want to mine or run a pool
-- Backup nodes
-- Relay nodes
+If you want to operate a public ETHII mining pool, we have a **fully automated one-click installer**. 
 
-Start with: `ETH-II-NODE-ONLY/README.md`
+The installer will:
+- Auto-generate a secure pool wallet
+- Ask you which ports you want to use for miners
+- Auto-provision a dedicated, lightweight Truth Node on our secure EU server
+- Hook everything up seamlessly without any risk of chain forks
 
-### I want to run a mining pool
-
-**[POOL-OPERATORS.md](POOL-OPERATORS.md)** — one-command install of a
-self-running ETHII pool (node + stratum + auto-payouts + self-healing).
-You need a download key from the ETHII team.
-
-The setup script (`scripts/setup-ethii-pool.sh`) automatically:
-- Configures stratum to sync with the canonical EU RPC (91.99.231.217:8545)
-- Prevents local mining on your server
-- Generates a secure pool wallet
-- Sets up automatic payouts
-
-## Controlled access model
-
-To reduce abuse risk while peer count is still growing:
-
-- This public repo contains docs/templates only.
-- Operator binaries are distributed by admin approval.
-- Each approved operator gets an `OP-XXXX` ID and must submit a startup check-in.
-
-See:
-- `ops/POLICY.md`
-- `ops/templates/access-request-template.md`
-- `ops/templates/startup-checkin-template.md`
-
-## Getting the binaries (access key required)
-
-Node and stratum binaries are served from the official gated download service, not from GitHub:
-
-1. Request access: open an issue on this repo titled `Access request` using `ops/templates/access-request-template.md`, or use the contact info on https://www.ethii.net
-2. You will receive a personal key (`ETHII-XXXX-XXXX-XXXX`). Do not share it — every download is logged per key and keys can be revoked.
-3. Download:
-   - `https://www.ethii.net/dl/ethii-linux-amd64?key=YOUR-KEY`
-   - `https://www.ethii.net/dl/ethii-windows-amd64.exe?key=YOUR-KEY`
-   - `https://www.ethii.net/dl/stratum-linux-amd64?key=YOUR-KEY`
-   - `https://www.ethii.net/dl/stratum-windows-amd64.exe?key=YOUR-KEY`
-
-Example (Linux):
+**Run this command on your Linux VPS (replace `YOUR_PASSKEY_HERE`):**
 
 ```bash
-curl -fL -o /root/ethii "https://www.ethii.net/dl/ethii-linux-amd64?key=YOUR-KEY"
-chmod +x /root/ethii
+curl -sL https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh | sudo bash -s -- YOUR_PASSKEY_HERE
 ```
 
-On this PC, use the local registry manager to track operators:
+*Note: To update an existing pool, use `scripts/update-ethii-pool.sh`. If you are scaling to a second VPS, simply copy your `pool-keystore.json` to `/opt/ethii/` before running the installer!*
 
-- Double-click `ops/operator-registry-manager.bat`
-- Or run: `powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\operator-registry-manager.ps1`
+---
 
-Registry file:
-- `ops/operator-registry.json`
+##  2. I want to run a Simple Peer Node (Windows PC)
 
-## Security-first scope
+Want to help the network grow without the complexity of running a pool? You can run a **Simple Peer Node** natively on your Windows PC in one click!
+
+This node does **not** mine and does **not** run a pool. It simply syncs with the network and acts as a peer to strengthen the chain.
+
+**How to run it:**
+1. Download or clone this repository to your PC.
+2. Double-click the `one-click-peer-node.bat` file in the folder.
+3. It will ask for your **ETHII Passkey**.
+4. The script will automatically download the Windows node binary, sync with the truth nodes, and start running in the background!
+
+That's it! Your node is now supporting the network. Logs can be found in `%USERPROFILE%\ETHII\peer-node\data\peer-node.log`.
+
+---
+
+##  Security-first scope
 
 Included:
 - Canonical `genesis.json`
@@ -81,8 +56,7 @@ Included:
 Not included:
 - Chain database (`chaindata`, `ancient`, snapshots)
 - Wallet keys or payout secrets
-- Legacy mixed files from previous repos
-- Prebuilt binaries in the public repository
+- Prebuilt binaries (these are gated behind the passkey system to prevent abuse)
 
 ## Canonical chain identity
 
@@ -90,107 +64,3 @@ Verify your node matches all three values before opening public services:
 - net_version: `20482`
 - eth_chainId: `0x800`
 - genesis hash: `0xce9eec5ec053f791d5f833e7d385a1fd214daa85928ecbaba04381fd1b16b1f2`
-
-Use:
-- `scripts/verify-chain.sh` (Linux)
-- `scripts/verify-chain.ps1` (Windows)
-
-## Quick start (Linux peer node, no pool)
-
-Use this if you only want to run a node to support the network. To run a
-pool, use [POOL-OPERATORS.md](POOL-OPERATORS.md) instead.
-
-1. Place `ethii` binary at `/root/ethii` and make it executable.
-2. Create datadir `/root/ethii-data`.
-3. Initialize genesis:
-
-```bash
-/root/ethii --datadir /root/ethii-data --state.scheme hash init ./genesis.json
-```
-
-4. Copy peer templates:
-
-```bash
-mkdir -p /root/.ethereum
-cp p2p/static-nodes.json /root/.ethereum/static-nodes.json
-cp p2p/trusted-nodes.json /root/.ethereum/trusted-nodes.json
-cp templates/config.toml /root/ethii-data/config.toml
-```
-
-5. Create `/etc/systemd/system/ethii-node.service`:
-
-```ini
-[Unit]
-Description=ETHII Node
-After=network.target
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=10
-ExecStart=/root/ethii --config /root/ethii-data/config.toml --datadir /root/ethii-data --networkid 20482 --syncmode full --snapshot=false --state.scheme hash --port 30303 --maxpeers 50
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-6. Start node and verify:
-
-```bash
-systemctl daemon-reload
-systemctl enable --now ethii-node
-./scripts/verify-chain.sh
-```
-
-## Windows one-click (network support only)
-
-Use this mode if you only want to help network peer count.
-
-This does:
-- Start a node for peer connectivity.
-- Verify canonical chain identity.
-
-This does not:
-- Run stratum.
-- Host a public mining pool.
-
-### Steps
-
-1. Download or clone this repository.
-2. Put `ethii.exe` in the repository root (same folder as `genesis.json`).
-3. Double-click `one-click-peer-node.bat`.
-4. Wait for the script to report `PASS canonical ETH-II chain identity`.
-
-The launcher starts a node using a local datadir:
-- `%USERPROFILE%\\ETHII\\peer-node\\data`
-
-Logs are written to:
-- `%USERPROFILE%\\ETHII\\peer-node\\data\\peer-node.log`
-
-To check identity manually:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-chain.ps1
-```
-
-## Running a public pool
-
-Use the one-command installer — see **[POOL-OPERATORS.md](POOL-OPERATORS.md)**.
-It sets up the node, stratum, pool wallet, automatic payouts, and
-self-healing services, and includes firewall, miner-setup, and
-troubleshooting guidance.
-
-## Admin operations on this PC
-
-Use the registry manager for controlled onboarding:
-
-1. Add approved operator (creates `OP-XXXX`).
-2. Record startup check-in (IP, enode, chain identity).
-3. Auto-quarantine if chain identity mismatches.
-4. Set status (`active`, `paused`, `blocked`, `quarantine`).
-5. Export CSV report for backups/audit.
-
-If interrupted or restarted, current setup progress is tracked in:
-- `ops/SETUP-STATUS.md`
