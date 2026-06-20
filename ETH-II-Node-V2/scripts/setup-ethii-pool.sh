@@ -32,15 +32,15 @@ fi
 echo "============================================================"
 echo " ETHII Pool Port Configuration"
 echo "============================================================"
-read -p "Which port for Standard GPU/ASIC mining? (Press enter for default 3335): " PORT_STD
+read -p "Which port for Standard GPU/ASIC mining? (Press enter for default 3335): " PORT_STD < /dev/tty
 PORT_STD=${PORT_STD:-3335}
-read -p "Which port for Low Diff mining? (Press enter for default 3334): " PORT_LOW
+read -p "Which port for Low Diff mining? (Press enter for default 3334): " PORT_LOW < /dev/tty
 PORT_LOW=${PORT_LOW:-3334}
-read -p "Which port for A10/A10 Pro mining? (Press enter for default 3336): " PORT_A10
+read -p "Which port for A10/A10 Pro mining? (Press enter for default 3336): " PORT_A10 < /dev/tty
 PORT_A10=${PORT_A10:-3336}
 
 BUSY=""
-read -p "Which port for the web dashboard? (Press enter for default 8082): " PORT_DASH
+read -p "Which port for the web dashboard? (Press enter for default 8082): " PORT_DASH < /dev/tty
 PORT_DASH=${PORT_DASH:-8082}
 
 for p in $PORT_STD $PORT_LOW $PORT_A10 $PORT_DASH; do
