@@ -36,12 +36,10 @@
     ],
     "extraResources": [
       {
-        "from": "../",
+        "from": "bin-release/",
         "to": "bin",
         "filter": [
-          "ethii.exe",
-          "ethii"
-        ]
+          "ethii.exe","ethii"]
       }
     ],
     "win": {
@@ -101,3 +99,4 @@
     "ethers": "^6.16.0"
   }
 }
+

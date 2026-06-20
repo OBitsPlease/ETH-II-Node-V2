@@ -115,7 +115,7 @@ async function refreshTxHistory() {
     status.classList.remove('hidden');
   }
 
-  const result = await window.ethii.getTxHistory({ address: currentAddress, limit: 300 });
+  const result = await window.ethii.getTxHistory({ address: currentAddress, limit: 500, scan: 50000 });
   if (!result.success) {
     if (status) {
       status.textContent = `History load failed: ${result.error}`;
@@ -241,7 +241,7 @@ function openDashboard() {
   document.getElementById('receive-address-input').value = currentAddress;
   // Update node command with real address
   document.querySelector('.code-block').textContent =
-    `ethii.exe --datadir ".\\data" --config ".\\data\\geth\\config.toml" --networkid 2048 --syncmode full --gcmode archive --state.scheme hash --bootnodes "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303" --http --http.addr 127.0.0.1 --http.port 8545 --http.api "eth,net,web3,miner,ethash,txpool,admin,debug" --http.corsdomain "*" --http.vhosts "*" --miner.pending.feeRecipient ${currentAddress}`;
+    `ethii.exe --datadir ".\\data" --config ".\\data\\geth\\config.toml" --networkid 20482 --syncmode full --gcmode archive --state.scheme hash --bootnodes "enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303" --http --http.addr 127.0.0.1 --http.port 8545 --http.api "eth,net,web3,miner,ethash,txpool,admin,debug" --http.corsdomain "*" --http.vhosts "*" --miner.pending.feeRecipient ${currentAddress}`;
   showScreen('screen-dashboard');
   showView('view-wallet');
   refreshBalance({ showSpinner: true });

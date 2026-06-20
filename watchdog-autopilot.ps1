@@ -53,7 +53,7 @@ function Restart-Node {
     Get-Process -Name ethii -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 1
     $feeArg = if ($Etherbase) { " --miner.pending.feeRecipient $Etherbase" } else { "" }
-    Start-Process -FilePath $NodeExe -ArgumentList "--datadir `"$DataDir`" --networkid 2048 --gcmode archive --state.scheme hash --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3,miner,ethash,txpool,admin,debug --http.corsdomain * --http.vhosts * --port 30303 --bootnodes $BootnodesArg$feeArg --verbosity 3 --miner.recommit 30s" -WindowStyle Normal
+    Start-Process -FilePath $NodeExe -ArgumentList "--datadir `"$DataDir`" --networkid 20482 --gcmode archive --state.scheme hash --http --http.addr 0.0.0.0 --http.port 8545 --http.api eth,net,web3,miner,ethash,txpool,admin,debug --http.corsdomain * --http.vhosts * --port 30303 --bootnodes $BootnodesArg$feeArg --verbosity 3 --miner.recommit 30s" -WindowStyle Normal
 }
 
 function Restart-Stratum {

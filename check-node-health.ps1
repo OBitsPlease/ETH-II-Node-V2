@@ -71,10 +71,10 @@ try {
   Write-Host "TTD Passed           : $($cfg.terminalTotalDifficultyPassed)"
   Write-Host ""
 
-  if ($chainIdDec -eq 2048) {
-    Write-Host "PASS: chainId is 2048." -ForegroundColor Green
+  if ($chainIdDec -eq 20482) {
+    Write-Host "PASS: chainId is 20482." -ForegroundColor Green
   } else {
-    Write-Host "WARN: chainId is not 2048." -ForegroundColor Yellow
+    Write-Host "WARN: chainId is not 20482." -ForegroundColor Yellow
   }
 
   if ($peerCount -gt 0) {

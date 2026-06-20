@@ -3,68 +3,50 @@ name: Build ETH II Wallet
 on:
   push:
     tags:
-      - 'v*'           # triggers on version tags like v1.0.0
-  workflow_dispatch:   # allows manual trigger from GitHub UI
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Install electron-builder
-        run: npm install electron-builder --save-dev
-
+        run: npm ci
       - name: Build Windows installer
         run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: ETH-II-Wallet-Windows
           path: dist/*.exe
 
-  build-mac:
-    runs-on: macos-latest
+  build-linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Install electron-builder
-        run: npm install electron-builder --save-dev
-
-      - name: Build Mac DMG
-        run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Mac DMG
+        run: npm ci
+      - name: Build Linux AppImage
+        run: npm run build:linux
+      - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: ETH-II-Wallet-Mac
-          path: dist/*.dmg
+          name: ETH-II-Wallet-Linux
+          path: dist/*.AppImage
 
   release:
-    needs: [build-windows, build-mac]
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -73,13 +55,11 @@ jobs:
         with:
           name: ETH-II-Wallet-Windows
           path: release/
-
-      - name: Download Mac build
+      - name: Download Linux build
         uses: actions/download-artifact@v4
         with:
-          name: ETH-II-Wallet-Mac
+          name: ETH-II-Wallet-Linux
           path: release/
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -87,25 +67,19 @@ jobs:
           body: |
             ## ETH II Wallet ${{ github.ref_name }}
 
-            **ETH II — PoW FOREVER — Crypto 2.0**
-
             ### Downloads
-            - **Windows**: `ETH-II-Wallet-Setup-*.exe`
-            - **Mac**: `ETH-II-Wallet-*.dmg`
+            - **Windows**: ETH II Wallet Setup *.exe
+            - **Linux**: ETH II Wallet-*.AppImage
 
-            ### Setup
-            1. Download and install the wallet
-            2. Start your ETH II node: `ethii.exe --datadir ./data --networkid 2048 --http --http.port 8545`
-            3. Open the wallet and connect
+            ### Installation
+            1. Download the installer for your platform
+            2. Run it -- the ETH II node is bundled, no extra downloads needed
+            3. Launch from your desktop shortcut
 
-            ### Chain Info
-            | | |
-            |---|---|
-            | Chain ID | 2048 |
-            | Block Reward | 5 ETH II |
-            | Block Time | ~10 seconds |
-            | Consensus | Ethash PoW |
-            | Dev Fee | 2% (consensus enforced) |
+            ### Network Info
+            Chain ID: 20482 | Block Reward: 5 ETHII | Consensus: Ethash PoW
+            Public RPC: https://ethii.net/rpc
+            Explorer: https://ethii.net/explorer.html
           files: release/*
           draft: false
           prerelease: false

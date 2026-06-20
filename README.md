@@ -5,7 +5,7 @@
 
 ## What is ETHII?
 ETHII (ETH 2.0) is a proof-of-work Ethereum fork that keeps mining alive forever.
-- **Chain ID:** 2048
+- **Chain ID:** 20482
 - **Block time:** ~10 seconds
 - **Block reward:** 5 ETHII (fixed forever, no halving)
 - **Gas price:** 0.5 gwei base (half of ETH)
@@ -118,7 +118,7 @@ The stratum proxy supports unlimited simultaneous miners.
 |-------|-------|
 | Network Name | ETHII |
 | RPC URL | http://127.0.0.1:8545 (local) |
-| Chain ID | 2048 |
+| Chain ID | 20482 |
 | Symbol | ETHII |
 | Block Explorer | (coming soon) |
 

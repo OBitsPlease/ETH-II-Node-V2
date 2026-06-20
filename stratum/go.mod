@@ -3,10 +3,17 @@ module ethii-stratum
 go 1.26.3
 
 require (
+<<<<<<< Updated upstream
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/ethereum/go-ethereum v1.17.3
 	github.com/hashicorp/golang-lru v1.0.2
 	golang.org/x/crypto v0.53.0
+=======
+	github.com/edsrzf/mmap-go v1.0.0
+	github.com/ethereum/go-ethereum v1.17.3
+	github.com/hashicorp/golang-lru v0.5.4
+	golang.org/x/crypto v0.47.0
+>>>>>>> Stashed changes
 )
 
 require (
@@ -14,10 +21,22 @@ require (
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/consensys/gnark-crypto v0.18.1 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.5.0 // indirect
+<<<<<<< Updated upstream
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.6 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/supranational/blst v0.3.16 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
+=======
+	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.6 // indirect
+	github.com/fsnotify/fsnotify v1.6.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/holiman/uint256 v1.3.2 // indirect
+	github.com/supranational/blst v0.3.16 // indirect
+	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+>>>>>>> Stashed changes
 )
