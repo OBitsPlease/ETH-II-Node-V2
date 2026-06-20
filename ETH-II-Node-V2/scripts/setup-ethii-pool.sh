@@ -40,7 +40,10 @@ read -p "Which port for A10/A10 Pro mining? (Press enter for default 3336): " PO
 PORT_A10=${PORT_A10:-3336}
 
 BUSY=""
-for p in $PORT_STD $PORT_LOW $PORT_A10 8082; do
+read -p "Which port for the web dashboard? (Press enter for default 8082): " PORT_DASH
+PORT_DASH=${PORT_DASH:-8082}
+
+for p in $PORT_STD $PORT_LOW $PORT_A10 $PORT_DASH; do
   if ss -lntu 2>/dev/null | awk '{print $5}' | grep -Eq "[:.]$p\$"; then
     BUSY="$BUSY $p"
   fi
@@ -99,7 +102,7 @@ Type=simple
 Restart=always
 RestartSec=10
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/stratum -node http://91.99.231.217:$RPC_PORT -stratum 0.0.0.0:$PORT_STD -a10-stratum 0.0.0.0:$PORT_A10 -lowdiff-stratum 0.0.0.0:$PORT_LOW -etherbase $POOL_ADDR -settings $INSTALL_DIR -keystore $INSTALL_DIR/pool-keystore.json -passfile $INSTALL_DIR/pool-password.txt -dashboard 0.0.0.0:8082
+ExecStart=$INSTALL_DIR/stratum -node http://91.99.231.217:$RPC_PORT -stratum 0.0.0.0:$PORT_STD -a10-stratum 0.0.0.0:$PORT_A10 -lowdiff-stratum 0.0.0.0:$PORT_LOW -etherbase $POOL_ADDR -settings $INSTALL_DIR -keystore $INSTALL_DIR/pool-keystore.json -passfile $INSTALL_DIR/pool-password.txt -dashboard 0.0.0.0:$PORT_DASH
 StandardOutput=journal
 StandardError=journal
 
@@ -125,7 +128,7 @@ Pool Connection:
   Standard Miners:        YOUR_IP:$PORT_STD
   Low-Difficulty:         YOUR_IP:$PORT_LOW
   Innosilicon A10 ASIC:   YOUR_IP:$PORT_A10
-  Dashboard:              http://YOUR_IP:8082
+  Dashboard:              http://YOUR_IP:$PORT_DASH
 
 Miner Connection Format:
   stratum+tcp://YOUR_IP:$PORT_STD
@@ -148,7 +151,7 @@ echo "   Password file : $INSTALL_DIR/pool-password.txt"
 echo "   >>> BACK UP BOTH FILES NOW. They control all pool funds. <<<"
 echo
 echo " Miner ports     : $PORT_STD (standard), $PORT_LOW (low difficulty), $PORT_A10 (A10 ASIC)"
-echo " Dashboard       : http://<this-server-ip>:8082"
+echo " Dashboard       : http://<this-server-ip>:$PORT_DASH"
 echo " Status          : systemctl status ethii-stratum"
 echo " Logs            : journalctl -u ethii-stratum -f"
 echo "============================================================"
