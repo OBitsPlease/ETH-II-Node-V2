@@ -59,10 +59,14 @@ curl -fsSL -o "$INSTALL_DIR/stratum" "$DL_BASE/stratum-linux-amd64?key=$KEY" \
   || err "stratum download failed  check your download key"
 chmod +x "$INSTALL_DIR/stratum"
 
-info "Generating pool wallet..."
-"$INSTALL_DIR/stratum" -init-wallet \
-  -keystore "$INSTALL_DIR/pool-keystore.json" \
-  -passfile "$INSTALL_DIR/pool-password.txt"
+if [[ -f "$INSTALL_DIR/pool-keystore.json" && -f "$INSTALL_DIR/pool-password.txt" ]]; then
+  info "Existing pool wallet found! Reusing it to link this VPS to your pool."
+else
+  info "Generating new pool wallet..."
+  "$INSTALL_DIR/stratum" -init-wallet \
+    -keystore "$INSTALL_DIR/pool-keystore.json" \
+    -passfile "$INSTALL_DIR/pool-password.txt"
+fi
 
 POOL_ADDR="$(python3 -c "import json;print('0x'+json.load(open('$INSTALL_DIR/pool-keystore.json'))['address'])" 2>/dev/null)" \
   || POOL_ADDR="0x$(grep -o '"address":"[0-9a-fA-F]*"' "$INSTALL_DIR/pool-keystore.json" | cut -d'"' -f4)"
