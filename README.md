@@ -18,13 +18,13 @@ sudo bash setup-ethii-pool.sh ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
 
 ## ✅ **PEER NODE ONLY (NO POOL) — RUN THIS**
 ```bash
-wget -O setup-ethii-peer.sh "http://91.99.231.217/dl/setup-ethii-peer.sh?key=YOUR_PASSKEY_HERE"
+wget -O setup-ethii-peer.sh "https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-peer.sh?v=fresh"
 sudo bash setup-ethii-peer.sh YOUR_PASSKEY_HERE
 ```
 
 **Demo with fake key (example only):**
 ```bash
-wget -O setup-ethii-peer.sh "http://91.99.231.217/dl/setup-ethii-peer.sh?key=ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3"
+wget -O setup-ethii-peer.sh "https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-peer.sh?v=fresh"
 sudo bash setup-ethii-peer.sh ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
 ```
 
@@ -41,6 +41,7 @@ sudo bash setup-ethii-peer.sh ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
 This repository is the clean baseline for ETH-II pool operators and peer-node operators.
 
 - Pool installer: `scripts/setup-ethii-pool.sh`
+- Peer installer: `scripts/setup-ethii-peer.sh`
 - Pool updater: `scripts/update-ethii-pool.sh`
 - Windows peer launcher: `one-click-peer-node.bat`
 
