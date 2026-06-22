@@ -8,9 +8,10 @@ set -euo pipefail
 
 DL_BASE="https://www.ethii.net/dl"
 GENESIS_URL="https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/genesis.json"
+PEER_SEEDS_URL="https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/peer-seeds.txt"
 INSTALL_DIR="/opt/ethii-peer"
 NETWORK_ID=20482
-BOOTNODES="enode://05f7f1c669368d16829699b6e1ddffbd8a3fee08a1301cac33922ad05f56fd53aadbca02f326d6b1c863c560c9adf30a75b44d45e7448ebb41d9c47235204fdf@87.99.142.128:30303,enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
+DEFAULT_BOOTNODES="enode://05f7f1c669368d16829699b6e1ddffbd8a3fee08a1301cac33922ad05f56fd53aadbca02f326d6b1c863c560c9adf30a75b44d45e7448ebb41d9c47235204fdf@87.99.142.128:30303,enode://b096bfae7d5e9a7cc985e68726280b75b0a0ef80ce419db5ed5152e9bee7bf83d35ae8b13b34879a0bf36d73a9a674bb61b02f3777745ed770e3150a39c7de5b@91.99.231.217:30303"
 
 err() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -67,6 +68,37 @@ info "Downloading genesis.json..."
 curl -fsSL -o "$INSTALL_DIR/genesis.json" "$GENESIS_URL" || err "genesis download failed"
 grep -q '"chainId": *20482' "$INSTALL_DIR/genesis.json" || err "genesis sanity check failed (chainId 20482 not found)"
 
+info "Preparing trusted peer seed list..."
+SEEDS_FILE="$INSTALL_DIR/peer-seeds.txt"
+if ! curl -fsSL -o "$SEEDS_FILE" "$PEER_SEEDS_URL"; then
+  printf '%s\n' "${DEFAULT_BOOTNODES//,/\\n}" > "$SEEDS_FILE"
+fi
+mapfile -t SEEDS < <(grep -E '^enode://' "$SEEDS_FILE" | sed 's/[[:space:]]*$//' | awk '!seen[$0]++')
+if [[ "${#SEEDS[@]}" -eq 0 ]]; then
+  mapfile -t SEEDS < <(printf '%s\n' "${DEFAULT_BOOTNODES//,/\\n}")
+fi
+BOOTNODES_CSV="$(IFS=,; echo "${SEEDS[*]}")"
+P2P_CONFIG="$INSTALL_DIR/p2p-config.toml"
+{
+  echo "[Node.P2P]"
+  echo "NoDiscovery = false"
+  echo "DiscoveryV4 = true"
+  echo "DiscoveryV5 = true"
+  echo "MaxPeers = $MAX_PEERS"
+  printf "StaticNodes = ["
+  for i in "${!SEEDS[@]}"; do
+    [[ $i -gt 0 ]] && printf ", "
+    printf "\"%s\"" "${SEEDS[$i]}"
+  done
+  echo "]"
+  printf "TrustedNodes = ["
+  for i in "${!SEEDS[@]}"; do
+    [[ $i -gt 0 ]] && printf ", "
+    printf "\"%s\"" "${SEEDS[$i]}"
+  done
+  echo "]"
+} > "$P2P_CONFIG"
+
 info "Registering peer with EU Truth Node firewall..."
 PEER_RES="$(curl -fsSL "http://91.99.231.217/dl/peer-provision?key=$KEY&p2p_port=$P2P_PORT" || true)"
 if ! echo "$PEER_RES" | grep -q '"status":"ok"\|"status": "ok"'; then
@@ -94,7 +126,7 @@ After=network.target
 Type=simple
 Restart=always
 RestartSec=10
-ExecStart=$INSTALL_DIR/ethii --datadir $INSTALL_DIR/data --networkid $NETWORK_ID --syncmode full --snapshot=false --gcmode archive --state.scheme hash --http --http.addr 127.0.0.1 --http.port $RPC_PORT --http.corsdomain * --http.vhosts * --http.api eth,net,web3,admin,debug,ethash --port $P2P_PORT --bootnodes $BOOTNODES --maxpeers $MAX_PEERS $NAT_FLAG
+ExecStart=$INSTALL_DIR/ethii --config $P2P_CONFIG --datadir $INSTALL_DIR/data --networkid $NETWORK_ID --syncmode full --snapshot=false --gcmode archive --state.scheme hash --http --http.addr 127.0.0.1 --http.port $RPC_PORT --http.corsdomain * --http.vhosts * --http.api eth,net,web3,admin,debug,ethash --port $P2P_PORT --bootnodes $BOOTNODES_CSV --maxpeers $MAX_PEERS $NAT_FLAG
 StandardOutput=journal
 StandardError=journal
 

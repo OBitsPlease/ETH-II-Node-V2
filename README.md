@@ -59,6 +59,7 @@ The peer installer:
 - Prompts for P2P/RPC/max-peers settings
 - Installs a non-mining relay node
 - Registers peer metadata with EU API
+- Loads trusted seed peers from `scripts/peer-seeds.txt`
 - Auto-unlocks required EU firewall rules for that peer IP
 
 ## Canonical chain identity
