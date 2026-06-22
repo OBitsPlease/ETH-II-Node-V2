@@ -1,20 +1,22 @@
 # ETH-II Node V2 (Operator Baseline)
 
-## **READ THIS FIRST (NO CONFUSION)**
+## 🚨🚨🚨 STOP — RUN ONLY ONE OF THESE TWO OPTIONS 🚨🚨🚨
 
-### **IF YOU ARE A POOL OPERATOR (LINUX VPS): RUN THIS**
+## ✅ **POOL OPERATOR (LINUX VPS) — RUN THIS**
 ```bash
-curl -sL https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh | sudo bash -s -- YOUR_PASSKEY_HERE
+wget -O setup-ethii-pool.sh "https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh?v=fresh"
+sudo bash setup-ethii-pool.sh YOUR_PASSKEY_HERE
 ```
 
 **Demo with fake key (example only):**
 ```bash
-curl -sL https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh | sudo bash -s -- ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
+wget -O setup-ethii-pool.sh "https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh?v=fresh"
+sudo bash setup-ethii-pool.sh ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
 ```
 
 ---
 
-### **IF YOU ONLY WANT A PEER NODE (NO POOL): RUN THIS**
+## ✅ **PEER NODE ONLY (NO POOL) — RUN THIS**
 ```bash
 wget -O setup-ethii-peer.sh "http://91.99.231.217/dl/setup-ethii-peer.sh?key=YOUR_PASSKEY_HERE"
 sudo bash setup-ethii-peer.sh YOUR_PASSKEY_HERE
@@ -28,7 +30,7 @@ sudo bash setup-ethii-peer.sh ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
 
 ---
 
-### **Need a passkey first?**
+## 🔑 Need a passkey first?
 1. Join Discord: **https://discord.gg/fecncP66**
 2. Tag/DM **@bitspleaseyt.skr** and request a key.
 
