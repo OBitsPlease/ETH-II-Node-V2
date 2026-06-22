@@ -1,68 +1,66 @@
 # ETH-II Node V2 (Operator Baseline)
 
-This repository is the clean baseline for ETH-II node and public pool operators.
+## **READ THIS FIRST (NO CONFUSION)**
 
-> **Want to run a node or pool?** You need a secure passkey to download the software.
-> 
-> **How to get a passkey:**
-> 1. Join our Discord: **[https://discord.gg/fecncP66](https://discord.gg/fecncP66)**
-> 2. Tag or DM **`@bitspleaseyt.skr`** and ask for a Node/Pool passkey.
-
----
-
-##  1. I want to run a mining pool (Linux VPS)
-
-If you want to operate a public ETHII mining pool, we have a **fully automated one-click installer**. 
-
-The installer will:
-- Auto-generate a secure pool wallet
-- Ask you which ports you want to use for miners
-- Auto-provision a dedicated, lightweight Truth Node on our secure EU server
-- Hook everything up seamlessly without any risk of chain forks
-
-**Run this command on your Linux VPS (replace `YOUR_PASSKEY_HERE`):**
-
+### **IF YOU ARE A POOL OPERATOR (LINUX VPS): RUN THIS**
 ```bash
 curl -sL https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh | sudo bash -s -- YOUR_PASSKEY_HERE
 ```
 
-*Note: To update an existing pool, use `scripts/update-ethii-pool.sh`. If you are scaling to a second VPS, simply copy your `pool-keystore.json` to `/opt/ethii/` before running the installer!*
+**Demo with fake key (example only):**
+```bash
+curl -sL https://raw.githubusercontent.com/OBitsPlease/ETH-II-Node-V2/main/scripts/setup-ethii-pool.sh | sudo bash -s -- ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
+```
 
 ---
 
-##  2. I want to run a Simple Peer Node (Windows PC)
+### **IF YOU ONLY WANT A PEER NODE (NO POOL): RUN THIS**
+```bash
+wget -O setup-ethii-peer.sh "http://91.99.231.217/dl/setup-ethii-peer.sh?key=YOUR_PASSKEY_HERE"
+sudo bash setup-ethii-peer.sh YOUR_PASSKEY_HERE
+```
 
-Want to help the network grow without the complexity of running a pool? You can run a **Simple Peer Node** natively on your Windows PC in one click!
-
-This node does **not** mine and does **not** run a pool. It simply syncs with the network and acts as a peer to strengthen the chain.
-
-**How to run it (No GitHub experience required):**
-1. **[ CLICK HERE TO DOWNLOAD THE SETUP ZIP ](https://github.com/OBitsPlease/ETH-II-Node-V2/archive/refs/heads/main.zip)**
-2. Open your Downloads folder, **Right-Click** the downloaded .zip file, and select **Extract All...**
-3. Open the extracted folder and double-click the **one-click-peer-node.bat** file.
-4. It will ask for your **ETHII Passkey**. *(Join our **[Discord](https://discord.gg/fecncP66)** and ask `@bitspleaseyt.skr` for a passkey).*
-5. The script will automatically download the Windows node binary, sync with the truth nodes, and start running in the background!
-
-That's it! Your node is now supporting the network. Logs can be found in %USERPROFILE%\ETHII\peer-node\data\peer-node.log.
+**Demo with fake key (example only):**
+```bash
+wget -O setup-ethii-peer.sh "http://91.99.231.217/dl/setup-ethii-peer.sh?key=ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3"
+sudo bash setup-ethii-peer.sh ETHII-FAKEKEY1-FAKEKEY2-FAKEKEY3
+```
 
 ---
 
-##  Security-first scope
+### **Need a passkey first?**
+1. Join Discord: **https://discord.gg/fecncP66**
+2. Tag/DM **@bitspleaseyt.skr** and request a key.
 
-Included:
-- Canonical `genesis.json`
-- Peer seed templates
-- One-command pool installer (`scripts/setup-ethii-pool.sh`)
-- Chain identity verification scripts
+---
 
-Not included:
-- Chain database (`chaindata`, `ancient`, snapshots)
-- Wallet keys or payout secrets
-- Prebuilt binaries (these are gated behind the passkey system to prevent abuse)
+## What this repository is for
+
+This repository is the clean baseline for ETH-II pool operators and peer-node operators.
+
+- Pool installer: `scripts/setup-ethii-pool.sh`
+- Pool updater: `scripts/update-ethii-pool.sh`
+- Windows peer launcher: `one-click-peer-node.bat`
+
+## Pool installer behavior
+
+The pool installer:
+- Prompts for custom miner/dashboard ports
+- Generates or reuses pool wallet files
+- Auto-provisions a dedicated EU tenant RPC (per pool)
+- Starts `ethii-stratum` with your assigned tenant RPC port
+
+## Peer installer behavior
+
+The peer installer:
+- Prompts for P2P/RPC/max-peers settings
+- Installs a non-mining relay node
+- Registers peer metadata with EU API
+- Auto-unlocks required EU firewall rules for that peer IP
 
 ## Canonical chain identity
 
-Verify your node matches all three values before opening public services:
-- net_version: `20482`
-- eth_chainId: `0x800`
-- genesis hash: `0xce9eec5ec053f791d5f833e7d385a1fd214daa85928ecbaba04381fd1b16b1f2`
+Verify your node matches:
+- `net_version`: `20482`
+- `eth_chainId`: `0x800`
+- `genesis hash`: `0xce9eec5ec053f791d5f833e7d385a1fd214daa85928ecbaba04381fd1b16b1f2`
